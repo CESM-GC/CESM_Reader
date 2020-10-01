@@ -25,9 +25,10 @@ else:
     folder = os.path.join(rootFolder, folder, 'run')
 fileReader = CESM_Reader(folder, debug=False);
 
-include = ['O3', 'NO*', 'CFC11']
+# As long as the following species are saved during the CESM run, then they will be loaded
+include = ['O3', 'NO*', 'pFe', 'DepFlux_NO*', 'DepVel_O3', 'WDRATE_SO2', 'Jval_O3*']
 fileReader.register(include=include, debug=False)
-#print(fileReader.include) # This should be equal to ['O3', 'CFC11', 'NO', 'NO2', 'NO3']
+#print(fileReader.include)
 
 ## Zonal averaging
 fileReader.load(spatialAveraging='Zonal', timeAveraging=True, minDate=datetime(2005,1,1), maxDate=datetime(2005,1,3), debug=False)

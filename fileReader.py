@@ -613,8 +613,9 @@ class CESM_Reader:
              labelFtSize=18, labelTickSize=18, isDiff=False,
              debug=False):
 
-        im = None
-        cb = None
+        imageDict = {}
+        cbDict    = {}
+        figDict   = {}
 
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
@@ -641,11 +642,11 @@ class CESM_Reader:
                 'v altitude', 'v latitude', 'v longitude']:
             logging.error('No plotting method exists for spatialAveraging = {:s}'.
                           format(self.spatialAveraging))
-            return im, cb
+            return imageDict, cbDict, figDict
 
         if ((self.timeAveraging == False) and (self.spatialAveraging.lower() != 'all')):
             logging.error('No plotting method exists to plot non-globally averaged temporal variations')
-            return im, cb
+            return imageDict, cbDict, figDict
 
         custUnit_isStr = False
         custUnit_isList= False
@@ -660,9 +661,10 @@ class CESM_Reader:
             elif (isinstance(plotUnit, dict)):
                 custUnit_isDict = True
 
-        imageList = []
-        cbList    = []
         for iSpec, spec in enumerate(spc2Plot):
+            im       = None
+            fig      = None
+            cb       = None
             data     = self.data[spec]
             currUnit = self.unit[spec]
             if custUnit_isStr:
@@ -678,60 +680,65 @@ class CESM_Reader:
             RC = -1
             if self.spatialAveraging.lower() == 'zonal':
                 if np.shape(self.data[spec]) == self.zonalSize:
-                    im, cb = self.plotZonal(spec=spec, targetUnit=targetUnit,
-                                            cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                            show_colorbar=show_colorbar,
-                                            cbTitle=cbTitle, labelFtSize=labelFtSize,
-                                            labelTickSize=labelTickSize, isDiff=isDiff)
+                    im, cb, fig = self.plotZonal(spec=spec, targetUnit=targetUnit,
+                                                cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                show_colorbar=show_colorbar,
+                                                cbTitle=cbTitle, labelFtSize=labelFtSize,
+                                                labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif ((self.spatialAveraging.lower() == 'layer') or (self.spatialAveraging.lower() == 'column')):
                 if np.shape(self.data[spec]) == self.layerSize:
-                    im, cb = self.plotLayer(spec=spec, targetUnit=targetUnit,
-                                            cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                            show_colorbar=show_colorbar,
-                                            cbTitle=cbTitle, labelFtSize=labelFtSize,
-                                            labelTickSize=labelTickSize, isDiff=isDiff)
+                    im, cb, fig = self.plotLayer(spec=spec, targetUnit=targetUnit,
+                                                 cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                 show_colorbar=show_colorbar,
+                                                 cbTitle=cbTitle, labelFtSize=labelFtSize,
+                                                 labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'all':
                 if np.size(self.data[spec]) == np.size(self.timeMid):
-                    im, cb = self.plotTime(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                           labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                           isDiff=isDiff)
+                    im, cb, fig = self.plotTime(spec=spec, targetUnit=targetUnit,
+                                                ylim=ylim, xlim=xlim,
+                                                labelFtSize=labelFtSize,
+                                                labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v altitude':
                 if np.shape(self.data[spec]) == self.altSize:
-                    im, cb = self.plotAltitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                               labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                               isDiff=isDiff)
+                    im, cb, fig = self.plotAltitude(spec=spec, targetUnit=targetUnit,
+                                                    ylim=ylim, xlim=xlim,
+                                                    labelFtSize=labelFtSize,
+                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v latitude':
                 if np.shape(self.data[spec]) == self.latSize:
-                    im, cb = self.plotLatitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                               labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                               isDiff=isDiff)
+                    im, cb, fig = self.plotLatitude(spec=spec, targetUnit=targetUnit,
+                                                    ylim=ylim, xlim=xlim,
+                                                    labelFtSize=labelFtSize,
+                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v longitude':
                 if np.shape(self.data[spec]) == self.lonSize:
-                    im, cb = self.plotLongitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                               labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                               isDiff=isDiff)
+                    im, cb, fig = self.plotLongitude(spec=spec, targetUnit=targetUnit,
+                                                     ylim=ylim, xlim=xlim,
+                                                     labelFtSize=labelFtSize,
+                                                     labelTickSize=labelTickSize, isDiff=isDiff)
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             else:
                 logging.error('Unknown spatial averaging: {:s}'.format(self.spatialAveraging))
             if RC == SUCCESS:
-                imageList.append(im)
-                cbList.append(cb)
+                imageDict[spec] = im
+                cbDict[spec] = cb
+                figDict[spec] = fig
 
-        return imageList, cbList
+        return imageDict, cbDict, figDict
 
     def plotZonal(self, data=None, spec=None,
                   cmap=None, clim=None, ylim=None, xlim=None,
@@ -852,7 +859,7 @@ class CESM_Reader:
         else:
             cb = None
 
-        return im, cb
+        return im, cb, fig
 
     def plotLayer(self, data=None, spec=None,
                   cmap=None, clim=None, xlim=None, ylim=None,
@@ -983,7 +990,7 @@ class CESM_Reader:
         if show_coastlines:
             ax.coastlines('50m')
 
-        return im, cb
+        return im, cb, fig
 
     def plotTime(self, data=None, spec=None,
                  xlim=None, ylim=None, isDiff=False,
@@ -1077,7 +1084,7 @@ class CESM_Reader:
 
         cb = None
 
-        return im, cb
+        return im, cb, fig
 
     def plotAltitude(self, data=None, spec=None,
                      xlim=None, ylim=None, isDiff=False,
@@ -1173,7 +1180,7 @@ class CESM_Reader:
 
         cb = None
 
-        return im, cb
+        return im, cb, fig
 
     def plotLatitude(self, data=None, spec=None,
                      xlim=None, ylim=None, isDiff=False,
@@ -1272,7 +1279,7 @@ class CESM_Reader:
 
         cb = None
 
-        return im, cb
+        return im, cb, fig
 
     def plotLongitude(self, data=None, spec=None,
                       xlim=None, ylim=None, isDiff=False,
@@ -1374,7 +1381,7 @@ class CESM_Reader:
 
         cb = None
 
-        return im, cb
+        return im, cb, fig
 
     def __checkUnit(self, currUnit, targetUnit):
         if (targetUnit is not None) and (currUnit is None):
@@ -1386,13 +1393,13 @@ class CESM_Reader:
 
         RC = SUCCESS
         if (targetUnit is not None) and (targetUnit not in self.possUnit):
-            logging.error('Could not parse targetUnit: {:s}'.format(targetUnit))
+            logging.warning('Could not parse targetUnit: {:s}'.format(targetUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
             return _scaleFactor, _displayUnit, RC
 
         if (currUnit is not None) and (currUnit not in self.possUnit):
-            logging.error('Could not parse currUnit: {:s}'.format(currUnit))
+            logging.warning('Could not parse currUnit: {:s}'.format(currUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
             return _scaleFactor, _displayUnit, RC

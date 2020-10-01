@@ -13,6 +13,10 @@ from datetime import datetime, timedelta
 import cartopy.io.shapereader as shpreader
 import logging
 
+SUCCESS     = 0
+WRONG_UNIT  = 1
+WRONG_SHAPE = 2
+
 MIN_DATE = datetime(1,1,1)
 MAX_DATE = datetime(9999,12,31)
 reader = shpreader.Reader('/glade/u/home/fritzt/.local/share/cartopy/shapefiles/natural_earth/physical/ne_110m_coastline.shp')
@@ -333,15 +337,21 @@ class CESM_Reader:
         _avMethods['v latitude']  = 'Data is averaged across longitude and altitude'
         _avMethods['v longitude'] = 'Data is averaged across latitude and altitude'
 
+        self.zonalSize   = (self.nLev,self.nLat)
+        self.layerSize   = (self.nLat,self.nLon)
+        self.altSize     = (self.nLev,)
+        self.latSize     = (self.nLat,)
+        self.lonSize     = (self.nLon,)
+        _size_2D         = self.layerSize
         if self.spatialAveraging.lower() == 'zonal':
             logging.debug('Zonal averaging will be performed!')
             _avAxis      = (lonDim,)
-            _size        = (self.nLev,self.nLat)
+            _size        = self.zonalSize
             _scaleFactor = 1.0E+00
         elif self.spatialAveraging.lower() == 'layer':
             doLayer      = True
             _avAxis      = (levDim,)
-            _size        = (self.nLat,self.nLon)
+            _size        = self.layerSize
             _scaleFactor = 1.0E+00
             if isinstance(iLayer, int):
                 logging.debug('Extracting single layer!')
@@ -357,7 +367,7 @@ class CESM_Reader:
         elif self.spatialAveraging.lower() == 'column':
             logging.debug('Computing column totals!')
             _avAxis      = (levDim,)
-            _size        = (self.nLat,self.nLon)
+            _size        = self.layerSize
             _scaleFactor = self.nLev
         elif self.spatialAveraging.lower() == 'all':
             logging.debug('Global averaging will be performed!')
@@ -367,17 +377,17 @@ class CESM_Reader:
         elif self.spatialAveraging.lower() == 'v altitude':
             logging.debug('Longitude/Latitude averaging!')
             _avAxis      = (latDim, lonDim,)
-            _size        = (self.nLev,)
+            _size        = self.altSize
             _scaleFactor = 1.0E+00
         elif self.spatialAveraging.lower() == 'v latitude':
             logging.debug('Longitude/Altitude averaging!')
             _avAxis      = (levDim, lonDim,)
-            _size        = (self.nLat,)
+            _size        = self.latSize
             _scaleFactor = 1.0E+00
         elif self.spatialAveraging.lower() == 'v longitude':
             logging.debug('Latitude/Altitude averaging!')
             _avAxis      = (levDim, latDim,)
-            _size        = (self.nLon,)
+            _size        = self.lonSize
             _scaleFactor = 1.0E+00
         else:
             # This should correspond to the case where:
@@ -392,6 +402,8 @@ class CESM_Reader:
             logging.warning('For each output field, the data\'s dimension will be in ((time), lev, lat, lon)!')
 
         # For arrays that are only (time,lat,lon), create a new _avAxis from which levDim is removed
+        # _avAxis_2D is designed for (time, lat, lon)
+        _avAxis_2D = ()
         _avAxis_3D = ()
         _size_3D   = ()
         for _dim in _avAxis:
@@ -405,9 +417,12 @@ class CESM_Reader:
             if _tmp != self.nLev:
                 _size_3D += (_tmp,)
 
+        _avAxis_2D_noT = _avAxis_2D
+        _axAxis_3D_noT = _avAxis_3D
         if self.timeAveraging:
             logging.debug('Time averaging will be performed!')
-            _avAxis = (timeDim,) + _avAxis
+            _avAxis    = (timeDim,) + _avAxis
+            _avAxis_2D = (timeDim,) + _avAxis_2D
         else:
             logging.debug('Time variations will be considered!')
             #logging.debug('A time slice will be extracted using the iTime argument')
@@ -469,17 +484,26 @@ class CESM_Reader:
                                     _localSample = np.shape(fId['time'])[0]
                                     # Number of time samples for all files
                                     self.nTime[spec] = len(self.fileInst.fileList[_comp][_tape]) * _localSample
+                                    # Adding an empty tuple allows to copy by memory and not by address!
+                                    _tsize_noT = _size + ()
+                                    _tsize     = _size + ()
+                                    _tsize_2D  = _size_2D + ()
+                                    _tsize_3D  = _size_3D + ()
                                     if self.timeAveraging == False:
-                                        _size    = (_localSample,) + _size
-                                        _size_3D = (_localSample,) + _size_3D
+                                        _tsize    = (_localSample,) + _tsize
+                                        _tsize_2D = (_localSample,) + _tsize_2D
+                                        _tsize_3D = (_localSample,) + _tsize_3D
                                         if iSpec == 0:
                                             _tmpArray_time = np.array(MIN_DATE, dtype=np.datetime64) + np.arange(_localSample)
                                             self.timeMid = _tmpArray_time.copy()
                                             _date    = fId['date'][:].data
                                             _timeSec = fId['datesec'][:].data
                                             self.timeMid[iFile*_localSample:(iFile+1)*_localSample] =                                                 np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                     timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
-                                    _tmpArray    = np.zeros(_size)
-                                    _tmpArray_3D = np.zeros(_size_3D)
+                                        _tsize_noT = _size + ()
+                                        _tmpArray_noT = np.zeros(_tsize_noT)
+                                    _tmpArray       = np.zeros(_tsize)
+                                    _tmpArray_2D    = np.zeros(_tsize_2D)
+                                    _tmpArray_3D    = np.zeros(_tsize_3D)
 
                                     self.unit[spec]  = fId[spec].units
                                 else:
@@ -490,6 +514,7 @@ class CESM_Reader:
                                         self.timeMid[iFile*_localSample:(iFile+1)*_localSample] =                                             np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                 timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
 
                                 if (len(np.shape(fId[spec])) == 4):
+                                    # This is made for (time, lev, lat, lon) fields
                                     if firstFile[spec]:
                                         self.data[spec] = _tmpArray.copy()
                                     elif not timeAveraging:
@@ -504,25 +529,44 @@ class CESM_Reader:
                                     else:
                                         currTimeIndex = iFile * _localSample
                                         if doLayer:
-                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] =                                                 np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
                                         else:
-                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] =                                                 np.mean(fId[spec], axis=_avAxis)
+                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis)
                                         nFiles[spec] = 1
                                 elif (len(np.shape(fId[spec])) == 3):
-                                    if firstFile[spec]:
-                                        self.data[spec] = _tmpArray_3D.copy()
-                                    elif not timeAveraging:
-                                        self.data[spec] = np.concatenate((self.data[spec], _tmpArray_3D), axis=0)
-
-                                    if (levDim in _avAxis):
-                                        logging.warning('{:s} will not be read from file! (Not a 4-D array, while levDim is in _avAxis)'.format(spec))
-                                    else:
+                                    # This should make distinction between (time, lat, lon) and (lev, lat, lon)
+                                    if 'time' in fId.dimensions.keys():
+                                        # Then we have a temporally-evolving layer-like field in (time, lat, lon)
+                                        if firstFile[spec]:
+                                            self.data[spec] = _tmpArray_2D.copy()
+                                        elif not timeAveraging:
+                                            self.data[spec] = np.concatenate((self.data[spec], _tmpArray_2D), axis=0)
                                         if timeAveraging:
-                                            self.data[spec] += np.mean(fId[spec], axis=_avAxis_3D)
+                                            self.data[spec] += np.mean(fId[spec], axis=_avAxis_2D)
                                             nFiles[spec] += 1
                                         else:
                                             currTimeIndex = iFile * _localSample
-                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] =                                                 np.mean(fId[spec], axis=_avAxis_3D)
+                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis_2D)
+                                            nFiles[spec] = 1
+                                    else:
+                                        # Else, we have a constant (lev, lat, lon) field
+                                        if firstFile[spec]:
+                                            self.data[spec] = _tmpArray_noT.copy()
+                                        elif not timeAveraging:
+                                            self.data[spec] = np.concatenate((self.data[spec], _tmpArray_noT), axis=0)
+
+                                        if timeAveraging:
+                                            if doLayer:
+                                                self.data[spec] += np.mean(fId[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
+                                            else:
+                                                self.data[spec] += np.mean(fId[spec], axis=_avAxis_3D_noT)
+                                            nFiles[spec] += 1
+                                        else:
+                                            currTimeIndex = iFile
+                                            if doLayer:
+                                                self.data[spec][currTimeIndex] = np.mean(fId[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
+                                            else:
+                                                self.data[spec][currTimeIndex] = np.mean(fId[spec], axis=_avAxis_3D_noT)
                                             nFiles[spec] = 1
                                 else:
                                     logging.warning('{:s} will not be read from file! Found {:d} dimensions'.format(spec, len(np.shape(fId[spec]))))
@@ -540,25 +584,25 @@ class CESM_Reader:
                 if iSpec == 0:
                     print('Globally and temporal averaged mixing ratios')
                     print('----------------+--------------------------')
-                _val  = self.data[spec]
-                _unit = 'mol/mol'
-                if _val < 1.0E-02:
-                    _val *= self.possUnit[_unit] / self.possUnit['ppth']
-                    _unit = 'ppth'
-                if _val < 1.0E+00:
-                    _val *= self.possUnit[_unit] / self.possUnit['ppmv']
-                    _unit = 'ppmv'
-                if _val < 1.0E+00:
-                    _val *= self.possUnit[_unit] / self.possUnit['ppbv']
-                    _unit = 'ppbv'
-                if _val < 1.0E+00:
-                    _val *= self.possUnit[_unit] / self.possUnit['pptv']
-                    _unit = 'pptv'
-                print('{:16s}|{:6.2e} {:s}'.format(spec, _val, _unit))
+                if self.unit[spec] in self.possUnit.keys():
+                    _val  = self.data[spec]
+                    _unit = self.unit[spec]
+                    if _val < 1.0E-02:
+                        _val *= self.possUnit[_unit] / self.possUnit['ppth']
+                        _unit = 'ppth'
+                    if _val < 1.0E+00:
+                        _val *= self.possUnit[_unit] / self.possUnit['ppmv']
+                        _unit = 'ppmv'
+                    if _val < 1.0E+00:
+                        _val *= self.possUnit[_unit] / self.possUnit['ppbv']
+                        _unit = 'ppbv'
+                    if _val < 1.0E+00:
+                        _val *= self.possUnit[_unit] / self.possUnit['pptv']
+                        _unit = 'pptv'
+                    print('{:16s}|{:6.2e} {:s}'.format(spec, _val, _unit))
 
         # Canons ready, captain!
         self.loaded = True
-
 
         if doPlot:
             self.plot(species=self.include, plotUnit=plotUnit, debug=debug)
@@ -568,6 +612,9 @@ class CESM_Reader:
              show_colorbar=True, cbTitle=None,
              labelFtSize=18, labelTickSize=18, isDiff=False,
              debug=False):
+
+        im = None
+        cb = None
 
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
@@ -594,9 +641,11 @@ class CESM_Reader:
                 'v altitude', 'v latitude', 'v longitude']:
             logging.error('No plotting method exists for spatialAveraging = {:s}'.
                           format(self.spatialAveraging))
+            return im, cb
 
         if ((self.timeAveraging == False) and (self.spatialAveraging.lower() != 'all')):
             logging.error('No plotting method exists to plot non-globally averaged temporal variations')
+            return im, cb
 
         custUnit_isStr = False
         custUnit_isList= False
@@ -626,38 +675,61 @@ class CESM_Reader:
                 except:
                     logging.warning('Could not find targetUnit for species {:s}'.format(spec))
                     targetUnit = 'ppbv'
+            RC = -1
             if self.spatialAveraging.lower() == 'zonal':
-                im, cb = self.plotZonal(spec=spec, targetUnit=targetUnit,
-                                        cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                        show_colorbar=show_colorbar,
-                                        cbTitle=cbTitle, labelFtSize=labelFtSize,
-                                        labelTickSize=labelTickSize, isDiff=isDiff)
+                if np.shape(self.data[spec]) == self.zonalSize:
+                    im, cb = self.plotZonal(spec=spec, targetUnit=targetUnit,
+                                            cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                            show_colorbar=show_colorbar,
+                                            cbTitle=cbTitle, labelFtSize=labelFtSize,
+                                            labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                else:
+                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif ((self.spatialAveraging.lower() == 'layer') or (self.spatialAveraging.lower() == 'column')):
-                im, cb = self.plotLayer(spec=spec, targetUnit=targetUnit,
-                                        cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                        show_colorbar=show_colorbar,
-                                        cbTitle=cbTitle, labelFtSize=labelFtSize,
-                                        labelTickSize=labelTickSize, isDiff=isDiff)
+                if np.shape(self.data[spec]) == self.layerSize:
+                    im, cb = self.plotLayer(spec=spec, targetUnit=targetUnit,
+                                            cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                            show_colorbar=show_colorbar,
+                                            cbTitle=cbTitle, labelFtSize=labelFtSize,
+                                            labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                else:
+                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'all':
-                im, cb = self.plotTime(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                       labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                       isDiff=isDiff)
+                if np.size(self.data[spec]) == np.size(self.timeMid):
+                    im, cb = self.plotTime(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
+                                           labelFtSize=labelFtSize, labelTickSize=labelTickSize,
+                                           isDiff=isDiff)
+                    RC = SUCCESS
+                else:
+                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v altitude':
-                im, cb = self.plotAltitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                           labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                           isDiff=isDiff)
+                if np.shape(self.data[spec]) == self.altSize:
+                    im, cb = self.plotAltitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
+                                               labelFtSize=labelFtSize, labelTickSize=labelTickSize,
+                                               isDiff=isDiff)
+                else:
+                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v latitude':
-                im, cb = self.plotLatitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                           labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                           isDiff=isDiff)
+                if np.shape(self.data[spec]) == self.latSize:
+                    im, cb = self.plotLatitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
+                                               labelFtSize=labelFtSize, labelTickSize=labelTickSize,
+                                               isDiff=isDiff)
+                else:
+                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v longitude':
-                im, cb = self.plotLongitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
-                                           labelFtSize=labelFtSize, labelTickSize=labelTickSize,
-                                           isDiff=isDiff)
+                if np.shape(self.data[spec]) == self.lonSize:
+                    im, cb = self.plotLongitude(spec=spec, targetUnit=targetUnit, ylim=ylim, xlim=xlim,
+                                               labelFtSize=labelFtSize, labelTickSize=labelTickSize,
+                                               isDiff=isDiff)
+                else:
+                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             else:
                 logging.error('Unknown spatial averaging: {:s}'.format(self.spatialAveraging))
-            imageList.append(im)
-            cbList.append(cb)
+            if RC == SUCCESS:
+                imageList.append(im)
+                cbList.append(cb)
 
         return imageList, cbList
 
@@ -676,15 +748,21 @@ class CESM_Reader:
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
-        _usr_cmap = 'viridis'
-        _isNeg    = False
+        _usr_cmap      = 'viridis'
+        _isNeg         = False
+        _isMixingRatio = True
 
-        _scaleFactor, _displayUnit = self.__checkUnit(currUnit, targetUnit)
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
 
         # Set colormap
-        if isDiff or (np.min(data) < 0):
+        if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
             _usr_cmap = 'RdBu_r'
             _isNeg = True
         if cmap is not None:
@@ -704,30 +782,39 @@ class CESM_Reader:
                 _tmpclim[1] = clim[1]
             im.set_clim(_tmpclim)
 
-        Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMin = 'ppbv'
-        if Min < 1.0E+00:
-            Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMin = 'pptv'
-        elif Min > 1.0E+03:
-            Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMin = 'ppmv'
-        Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMax = 'ppbv'
-        if Max < 1.0E+00:
-            Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMax = 'pptv'
-        elif Max > 1.0E+03:
-            Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMax = 'ppmv'
-        Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMean= 'ppbv'
-        if Mean < 1.0E+00:
-            Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMean= 'pptv'
-        elif Mean > 1.0E+03:
-            Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMean = 'ppmv'
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
+
         # Invert pressure axis and log scale
         ax.invert_yaxis()
         ax.set_yscale('log')
@@ -786,10 +873,16 @@ class CESM_Reader:
                                subplot_kw={'projection': ccrs.PlateCarree(central_longitude=0.0)})
 
         # Initialize local variables
-        _usr_cmap = 'viridis'
-        _isNeg    = False
+        _usr_cmap      = 'viridis'
+        _isNeg         = False
+        _isMixingRatio = True
 
-        _scaleFactor, _displayUnit = self.__checkUnit(currUnit, targetUnit)
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
 
         #lonShift = 0
         #if (not self.isCentered) and (np.min(lonTicks) < 0):
@@ -798,7 +891,7 @@ class CESM_Reader:
         _lonTickLabels = self.__getLonTickLabels(lonTicks, shift=0, isCentered=self.isCentered)
 
         # Set colormap
-        if isDiff or (np.min(data) < 0):
+        if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
             _usr_cmap = 'RdBu_r'
             _isNeg = True
         if cmap is not None:
@@ -818,30 +911,38 @@ class CESM_Reader:
                 _tmpclim[1] = clim[1]
             im.set_clim(_tmpclim)
 
-        Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMin = 'ppbv'
-        if Min < 1.0E+00:
-            Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMin = 'pptv'
-        elif Min > 1.0E+03:
-            Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMin = 'ppmv'
-        Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMax = 'ppbv'
-        if Max < 1.0E+00:
-            Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMax = 'pptv'
-        elif Max > 1.0E+03:
-            Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMax = 'ppmv'
-        Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMean= 'ppbv'
-        if Mean < 1.0E+00:
-            Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMean= 'pptv'
-        elif Mean > 1.0E+03:
-            Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMean = 'ppmv'
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
 
         ax.set_ylim([-90, 90])
         if ylim is not None:
@@ -898,9 +999,15 @@ class CESM_Reader:
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
-        _isNeg    = False
+        _isNeg         = False
+        _isMixingRatio = True
 
-        _scaleFactor, _displayUnit = self.__checkUnit(currUnit, targetUnit)
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
 
         # Set colormap
         if isDiff or (np.min(data) < 0):
@@ -927,30 +1034,38 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMin = 'ppbv'
-        if Min < 1.0E+00:
-            Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMin = 'pptv'
-        elif Min > 1.0E+03:
-            Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMin = 'ppmv'
-        Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMax = 'ppbv'
-        if Max < 1.0E+00:
-            Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMax = 'pptv'
-        elif Max > 1.0E+03:
-            Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMax = 'ppmv'
-        Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMean= 'ppbv'
-        if Mean < 1.0E+00:
-            Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMean= 'pptv'
-        elif Mean > 1.0E+03:
-            Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMean = 'ppmv'
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
 
         ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Time', fontsize=labelFtSize)
@@ -978,9 +1093,15 @@ class CESM_Reader:
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
-        _isNeg    = False
+        _isNeg         = False
+        _isMixingRatio = True
 
-        _scaleFactor, _displayUnit = self.__checkUnit(currUnit, targetUnit)
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
 
         # Set colormap
         if isDiff or (np.min(data) < 0):
@@ -1007,30 +1128,38 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMin = 'ppbv'
-        if Min < 1.0E+00:
-            Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMin = 'pptv'
-        elif Min > 1.0E+03:
-            Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMin = 'ppmv'
-        Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMax = 'ppbv'
-        if Max < 1.0E+00:
-            Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMax = 'pptv'
-        elif Max > 1.0E+03:
-            Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMax = 'ppmv'
-        Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMean= 'ppbv'
-        if Mean < 1.0E+00:
-            Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMean= 'pptv'
-        elif Mean > 1.0E+03:
-            Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMean = 'ppmv'
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
 
         # Invert pressure axis and log scale
         ax.invert_yaxis()
@@ -1061,9 +1190,15 @@ class CESM_Reader:
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
-        _isNeg    = False
+        _isNeg         = False
+        _isMixingRatio = True
 
-        _scaleFactor, _displayUnit = self.__checkUnit(currUnit, targetUnit)
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
 
@@ -1093,30 +1228,38 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMin = 'ppbv'
-        if Min < 1.0E+00:
-            Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMin = 'pptv'
-        elif Min > 1.0E+03:
-            Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMin = 'ppmv'
-        Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMax = 'ppbv'
-        if Max < 1.0E+00:
-            Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMax = 'pptv'
-        elif Max > 1.0E+03:
-            Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMax = 'ppmv'
-        Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMean= 'ppbv'
-        if Mean < 1.0E+00:
-            Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMean= 'pptv'
-        elif Mean > 1.0E+03:
-            Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMean = 'ppmv'
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
 
         ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Latitude', fontsize=labelFtSize)
@@ -1146,9 +1289,15 @@ class CESM_Reader:
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
-        _isNeg    = False
+        _isNeg         = False
+        _isMixingRatio = True
 
-        _scaleFactor, _displayUnit = self.__checkUnit(currUnit, targetUnit)
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
 
         #lonShift = 0
         #if (not self.isCentered) and (np.min(lonTicks) < 0):
@@ -1181,30 +1330,38 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMin = 'ppbv'
-        if Min < 1.0E+00:
-            Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMin = 'pptv'
-        elif Min > 1.0E+03:
-            Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMin = 'ppmv'
-        Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMax = 'ppbv'
-        if Max < 1.0E+00:
-            Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMax = 'pptv'
-        elif Max > 1.0E+03:
-            Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMax = 'ppmv'
-        Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
-        uMean= 'ppbv'
-        if Mean < 1.0E+00:
-            Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
-            uMean= 'pptv'
-        elif Mean > 1.0E+03:
-            Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
-            uMean = 'ppmv'
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
 
         ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Longitude', fontsize=labelFtSize)
@@ -1224,21 +1381,29 @@ class CESM_Reader:
             print('Required targetUnit = {:s}'.format(targetUnit))
             raise ValueError('Could not figure out current unit...')
 
-        if (targetUnit is not None) and (targetUnit not in self.possUnit):
-            raise ValueError('Could not parse targetUnit: {:s}'.format(targetUnit))
-
-        if (currUnit is not None) and (currUnit not in self.possUnit):
-            raise ValueError('Could not parse currUnit: {:s}'.format(currUnit))
-
         _scaleFactor  = 1.0E+00
         _displayUnit = 'Empty unit'
+
+        RC = SUCCESS
+        if (targetUnit is not None) and (targetUnit not in self.possUnit):
+            logging.error('Could not parse targetUnit: {:s}'.format(targetUnit))
+            RC = WRONG_UNIT
+            _displayUnit = currUnit
+            return _scaleFactor, _displayUnit, RC
+
+        if (currUnit is not None) and (currUnit not in self.possUnit):
+            logging.error('Could not parse currUnit: {:s}'.format(currUnit))
+            RC = WRONG_UNIT
+            _displayUnit = currUnit
+            return _scaleFactor, _displayUnit, RC
+
         if (currUnit is not None):
             _displayUnit = currUnit
         if (targetUnit is not None):
             _displayUnit = targetUnit
             _scaleFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
 
-        return _scaleFactor, _displayUnit
+        return _scaleFactor, _displayUnit, RC
 
     def __getLatTickLabels(self, latTicks):
         # Latitude ticks

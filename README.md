@@ -19,11 +19,19 @@ from CESM_Reader.fileReader import CESM_Reader
 
 rootFolder = '/glade/scratch/fritzt'
 folder     = 'CESM-GC_SpeciesConc'
+devFolder  = '/path/to/dev/folder'
 if '/run' in folder:
-    folder = os.path.join(rootFolder, folder)
+    folder    = os.path.join(rootFolder, folder)
+    devFolder = os.path.join(rootFolder, devFolder)
 else:
-    folder = os.path.join(rootFolder, folder, 'run')
+    folder    = os.path.join(rootFolder, folder, 'run')
+    devFolder = os.path.join(rootFolder, devFolder, 'run')
+
+# Load data from a run
 fileReader = CESM_Reader(folder, debug=False);
+
+# Load differences between two CESM runs
+#fileReader = CESM_Reader(folder, devFolder=devFolder, debug=False);
 
 # As long as the following species are saved during the CESM run, then they will be loaded
 include = ['O3', 'NO*', 'pFe', 'DepFlux_NO*', 'DepVel_O3', 'WDRATE_SO2', 'Jval_O3*']

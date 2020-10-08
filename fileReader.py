@@ -42,26 +42,29 @@ class fileHandler:
         _types = ['r', 'i', 'h']
         _nTape = {}
 
-        f = open(os.path.join(self.rootFolder,'CASEROOT'), 'r')
-        self.CASEROOT = f.read()
-        self.CASEROOT.replace('\n','')
-        f.close()
-        print('CASEROOT is {:s}'.format(self.CASEROOT))
+        CASEROOT = os.path.join(self.rootFolder, 'CASEROOT')
+        if os.path.exists(CASEROOT):
+            f = open(CASEROOT, 'r')
+            self.CASEROOT = f.read()
+            self.CASEROOT.replace('\n','')
+            f.close()
+            print('CASEROOT is {:s}'.format(self.CASEROOT))
 
         for _comp in self.comps:
             _nTape[_comp]        = 0
             self.fileList[_comp] = {}
             for _type in _types:
                 if _type == 'h':
-                    isHist = True
+                    isHist      = True
                     _tapeNumber = 0
-                    _tape  = str(_tapeNumber)
+                    _tape       = str(_tapeNumber)
+                    _maxTape    = 10
                 else:
-                    isHist = False
-                    _tapeNumber = -1
-                    _tape  = ''
-                tapeLoop = True
-                while (tapeLoop):
+                    isHist      = False
+                    _tapeNumber = 0
+                    _tape       = ''
+                    _maxTape    = 1
+                while (_tapeNumber < _maxTape):
                     _fileName = self.wildcard + _comp + '.' + _type + _tape + self.wildcard + self.fileExtension
                     keyName = _type + _tape
                     tmp = sorted(glob(os.path.join(self.rootFolder, _fileName)))
@@ -70,13 +73,8 @@ class fileHandler:
                         logging.debug('Found {:3d} files corresponding to component {:4s} and type {:3s}'.format(
                             len(self.fileList[_comp][keyName]), _comp, _type + _tape))
                         _nTape[_comp] += 1
-                    else:
-                        tapeLoop = False
-                    if isHist:
-                        _tapeNumber += 1
-                        _tape  = str(_tapeNumber)
-                    else:
-                        tapeLoop = False
+                    _tapeNumber += 1
+                    _tape  = str(_tapeNumber)
             logging.debug('Found {:2d} tapes for component {:4s}'.format(_nTape[_comp], _comp))
 
         _jobIDs   = []
@@ -102,22 +100,23 @@ class fileHandler:
             logging.debug(' - Job {:8s} on {:13s}'.format(_jobID, _runDates[iJob]))
 
         # Open most recent ATM log file
-        _mRecentFile = max(self.logList['atm'], key=os.path.getctime)
-        if _mRecentFile[-3:] != '.gz':
-            f = open(_mRecentFile, 'r')
-            foundHEMCO = False
-            for line in f:
-                if 'HEMCO_Config.rc' in line:
-                    foundHEMCO = True
-                    line.replace('\n', '')
-                    print('Using HEMCO from {:s}'.format(line))
-                    break;
-            f.close()
-            if foundHEMCO == False:
-                print('No mention of HEMCO_Config.rc was found in {:s}'.format(_mRecentFile))
+        if self.logList['atm']:
+            _mRecentFile = max(self.logList['atm'], key=os.path.getctime)
+            if _mRecentFile[-3:] != '.gz':
+                f = open(_mRecentFile, 'r')
+                foundHEMCO = False
+                for line in f:
+                    if 'HEMCO_Config.rc' in line:
+                        foundHEMCO = True
+                        line.replace('\n', '')
+                        print('Using HEMCO from {:s}'.format(line))
+                        break;
+                f.close()
+                if foundHEMCO == False:
+                    print('No mention of HEMCO_Config.rc was found in {:s}'.format(_mRecentFile))
 
 class CESM_Reader:
-    def __init__(self, rootFolder, surfPres=1013.25, debug=False):
+    def __init__(self, rootFolder, devFolder=None, surfPres=1013.25, debug=False):
 
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
@@ -126,12 +125,19 @@ class CESM_Reader:
         else:
             logging.basicConfig(level=logging.INFO)
 
+        self.rootFolder = rootFolder
+        self.devFolder  = devFolder
+
+        self.diffRun = False
+        if devFolder is not None and os.path.exists(devFolder):
+            self.diffRun = True
+
         self.fileInst = fileHandler(rootFolder, debug=debug);
         # Find any CAM output file to load grid characteristics
         _comp = 'cam'
         fId   = None
         for _tape in self.fileInst.fileList[_comp].keys():
-            if len(self.fileInst.fileList[_comp][_tape]) > 0:
+            if 'h' in _tape and len(self.fileInst.fileList[_comp][_tape]) > 0:
                 fId = Dataset(self.fileInst.fileList[_comp][_tape][0], 'r')
                 break;
         if fId == None:
@@ -156,6 +162,9 @@ class CESM_Reader:
 
         print('\nGrid characteristics: {:2d}x{:2d}'.format(len(self.lon), len(self.lat)))
         print('Lowest pressure is  : {:3.2f} hPa'.format(np.min(self.pEdge)))
+
+        if self.diffRun:
+            self.fileInst_dev = fileHandler(devFolder, debug=debug)
 
         self.possUnit = {}
         # Conversion factor to go from current species to mol/mol air
@@ -208,13 +217,13 @@ class CESM_Reader:
                     else:
                         excludeTape[_comp] = np.array([])
 
-            # For each speciess find the component and tape associated to it
+            # For each species find the component and tape associated to it
             # First, load first file of each component/tape combination
             fId = {}
             for _comp in self.fileInst.comps:
                 fId[_comp] = {}
                 for _tape in self.fileInst.fileList[_comp]:
-                    if ((int(_tape[-1]) not in excludeTape[_comp]) and (len(self.fileInst.fileList[_comp][_tape]) > 0)):
+                    if (('h' in _tape) and (int(_tape[-1]) not in excludeTape[_comp]) and (len(self.fileInst.fileList[_comp][_tape]) > 0)):
                         fId[_comp][_tape] = Dataset(self.fileInst.fileList[_comp][_tape][0], 'r')
 
             def IsInExclude(spec):
@@ -453,12 +462,16 @@ class CESM_Reader:
                         break
 
                     fileName = self.fileInst.fileList[_comp][_tape][iFile]
+                    if self.diffRun:
+                        fileDev  = self.fileInst_dev.fileList[_comp][_tape][iFile]
 
                     YYYY = int(os.path.basename(fileName)[-19:-15])
                     MM   = int(os.path.basename(fileName)[-14:-12])
                     DD   = int(os.path.basename(fileName)[-11:-9])
                     currDate = datetime(YYYY, MM, DD)
 
+                    # Rather than extracting the date from the file name, we should
+                    # extract it from the netCDF variables.
                     _discard = False
                     if currDate >= maxDate:
                         break
@@ -468,6 +481,8 @@ class CESM_Reader:
                     if not _discard:
                         try:
                             fId = Dataset(fileName, 'r')
+                            if self.diffRun:
+                                fIdDev = Dataset(fileDev, 'r')
                             isAFile = True
                         except:
                             isAFile = False
@@ -498,7 +513,7 @@ class CESM_Reader:
                                             self.timeMid = _tmpArray_time.copy()
                                             _date    = fId['date'][:].data
                                             _timeSec = fId['datesec'][:].data
-                                            self.timeMid[iFile*_localSample:(iFile+1)*_localSample] =                                                 np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                     timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
+                                            self.timeMid[iFile*_localSample:(iFile+1)*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                     timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
                                         _tsize_noT = _size + ()
                                         _tmpArray_noT = np.zeros(_tsize_noT)
                                     _tmpArray       = np.zeros(_tsize)
@@ -511,7 +526,8 @@ class CESM_Reader:
                                         self.timeMid = np.concatenate((self.timeMid, _tmpArray_time.copy()), axis=0)
                                         _date    = fId['date'][:].data
                                         _timeSec = fId['datesec'][:].data
-                                        self.timeMid[iFile*_localSample:(iFile+1)*_localSample] =                                             np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                 timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
+                                        self.timeMid[iFile*_localSample:(iFile+1)*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') + \
+                                                timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
 
                                 if (len(np.shape(fId[spec])) == 4):
                                     # This is made for (time, lev, lat, lon) fields
@@ -523,15 +539,23 @@ class CESM_Reader:
                                     if timeAveraging:
                                         if doLayer:
                                             self.data[spec] += np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                            if self.diffRun:
+                                                self.data[spec] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
                                         else:
                                             self.data[spec] += np.mean(fId[spec], axis=_avAxis)
+                                            if self.diffRun:
+                                                self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis)
                                         nFiles[spec] += 1
                                     else:
                                         currTimeIndex = iFile * _localSample
                                         if doLayer:
                                             self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                            if self.diffRun:
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
                                         else:
                                             self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis)
+                                            if self.diffRun:
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec], axis=_avAxis)
                                         nFiles[spec] = 1
                                 elif (len(np.shape(fId[spec])) == 3):
                                     # This should make distinction between (time, lat, lon) and (lev, lat, lon)
@@ -543,10 +567,14 @@ class CESM_Reader:
                                             self.data[spec] = np.concatenate((self.data[spec], _tmpArray_2D), axis=0)
                                         if timeAveraging:
                                             self.data[spec] += np.mean(fId[spec], axis=_avAxis_2D)
+                                            if self.diffRun:
+                                                self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis_2D)
                                             nFiles[spec] += 1
                                         else:
                                             currTimeIndex = iFile * _localSample
                                             self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis_2D)
+                                            if self.diffRun:
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec], axis=_avAxis_2D)
                                             nFiles[spec] = 1
                                     else:
                                         # Else, we have a constant (lev, lat, lon) field
@@ -558,15 +586,23 @@ class CESM_Reader:
                                         if timeAveraging:
                                             if doLayer:
                                                 self.data[spec] += np.mean(fId[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
+                                                if self.diffRun:
+                                                    self.data[spec] -= np.mean(fIdDev[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
                                             else:
                                                 self.data[spec] += np.mean(fId[spec], axis=_avAxis_3D_noT)
+                                                if self.diffRun:
+                                                    self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis_3D_noT)
                                             nFiles[spec] += 1
                                         else:
                                             currTimeIndex = iFile
                                             if doLayer:
                                                 self.data[spec][currTimeIndex] = np.mean(fId[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
+                                                if self.diffRun:
+                                                    self.data[spec][currTimeIndex] -= np.mean(fIdDev[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
                                             else:
                                                 self.data[spec][currTimeIndex] = np.mean(fId[spec], axis=_avAxis_3D_noT)
+                                                if self.diffRun:
+                                                    self.data[spec][currTimeIndex] -= np.mean(fIdDev[spec], axis=_avAxis_3D_noT)
                                             nFiles[spec] = 1
                                 else:
                                     logging.warning('{:s} will not be read from file! Found {:d} dimensions'.format(spec, len(np.shape(fId[spec]))))

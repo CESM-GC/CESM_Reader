@@ -614,7 +614,7 @@ class CESM_Reader:
             if nFiles[spec] > 0:
                 self.data[spec] *= _scaleFactor / nFiles[spec]
             else:
-                raise ValueError('No files were found for species {:s}'.format(spec))
+                raise ValueError('No files were found for {:s}'.format(spec))
             # If we performed a global and temporal average, then just print out
             if len(np.shape(self.data[spec])) == 0:
                 if iSpec == 0:

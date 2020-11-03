@@ -680,7 +680,8 @@ class CESM_Reader:
                           format(self.spatialAveraging))
             return imageDict, cbDict, figDict
 
-        if ((self.timeAveraging == False) and (self.spatialAveraging.lower() != 'all')):
+        if ((self.timeAveraging == False) and (self.spatialAveraging.lower() not in ['all', \
+                'v altitude', 'v latitude', 'v longitude'])):
             logging.error('No plotting method exists to plot non-globally averaged temporal variations')
             return imageDict, cbDict, figDict
 
@@ -734,7 +735,7 @@ class CESM_Reader:
                     RC = SUCCESS
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
-            elif self.spatialAveraging.lower() == 'all':
+            elif self.spatialAveraging.lower() == 'all' and self.timeAveraging == False:
                 if np.size(self.data[spec]) == np.size(self.timeMid):
                     im, cb, fig = self.plotTime(spec=spec, targetUnit=targetUnit,
                                                 ylim=ylim, xlim=xlim,
@@ -749,6 +750,13 @@ class CESM_Reader:
                                                     ylim=ylim, xlim=xlim,
                                                     labelFtSize=labelFtSize,
                                                     labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                elif self.timeAveraging == False:
+                    im, cb, fig = self.plotTimeAlt(spec=spec, targetUnit=targetUnit,
+                                                   ylim=ylim, xlim=xlim,
+                                                   labelFtSize=labelFtSize,
+                                                   labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v latitude':
@@ -757,6 +765,13 @@ class CESM_Reader:
                                                     ylim=ylim, xlim=xlim,
                                                     labelFtSize=labelFtSize,
                                                     labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                elif self.timeAveraging == False:
+                    im, cb, fig = self.plotTimeLat(spec=spec, targetUnit=targetUnit,
+                                                   ylim=ylim, xlim=xlim,
+                                                   labelFtSize=labelFtSize,
+                                                   labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
             elif self.spatialAveraging.lower() == 'v longitude':
@@ -765,10 +780,15 @@ class CESM_Reader:
                                                      ylim=ylim, xlim=xlim,
                                                      labelFtSize=labelFtSize,
                                                      labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                elif self.timeAveraging == False:
+                    im, cb, fig = self.plotTimeLon(spec=spec, targetUnit=targetUnit,
+                                                   ylim=ylim, xlim=xlim,
+                                                   labelFtSize=labelFtSize,
+                                                   labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
                 else:
                     logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
-            else:
-                logging.error('Unknown spatial averaging: {:s}'.format(self.spatialAveraging))
             if RC == SUCCESS:
                 imageDict[spec] = im
                 cbDict[spec] = cb
@@ -1002,6 +1022,7 @@ class CESM_Reader:
             if np.isfinite(xlim[1]):
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
+
         ax.set_ylabel('Latitude', fontsize=labelFtSize)
         ax.set_xlabel('Longitude', fontsize=labelFtSize)
         ax.set_yticks(latTicks)
@@ -1112,13 +1133,350 @@ class CESM_Reader:
 
         ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Time', fontsize=labelFtSize)
-        ax.set_xlim([self.timeMid[0], self.timeMid[-1] + (self.timeMid[-1] - self.timeMid[-2])])
+        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
         ax.set_title('{:s} globally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
         cb = None
+
+        return im, cb, fig
+
+    def plotTimeAlt(self, data=None, spec=None,
+                    cmap=None, xlim=None, ylim=None,
+                    show_colorbar=True, cbTitle=None,
+                    labelFtSize=18, labelTickSize=18, isDiff=False,
+                    currUnit=None, targetUnit=None):
+
+        if (data == None) and (spec == None):
+            logging.error('No data was passed to plotTimeAlt')
+        elif (data == None) and (spec != None):
+            data     = self.data[spec]
+            currUnit = self.unit[spec]
+
+        fig, ax = plt.subplots(1, 1, figsize=(15,8))
+
+        # Initialize local variables
+        _usr_cmap      = 'viridis'
+        _isNeg         = False
+        _isMixingRatio = True
+
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
+
+        # Set colormap
+        if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
+            _usr_cmap = 'RdBu_r'
+            _isNeg = True
+        if cmap is not None:
+            _usr_cmap = cmap
+
+        # Plot data
+        im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _scaleFactor, cmap=_usr_cmap)
+
+        # Change axis limits
+        if _isNeg:
+            im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
+
+        # Invert pressure axis and log scale
+        ax.invert_yaxis()
+        ax.set_yscale('log')
+        ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
+        ax.set_xlabel('Time', fontsize=labelFtSize)
+        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
+        ax.set_title('Temporal altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     fontsize=labelFtSize)
+        ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
+
+        if show_colorbar:
+            cb = fig.colorbar(im, ax=ax, shrink=1.0, orientation='vertical', pad=0.04)
+            if cbTitle is not None:
+                cb.set_label(cbTitle, fontsize=labelFtSize)
+            else:
+                cb.set_label(_displayUnit, fontsize=labelFtSize)
+            cb.ax.tick_params(axis='y', which='major', labelsize=labelTickSize)
+        else:
+            cb = None
+
+        return im, cb, fig
+
+    def plotTimeLat(self, data=None, spec=None,
+                    cmap=None, xlim=None, ylim=None,
+                    show_colorbar=True, cbTitle=None,
+                    labelFtSize=18, labelTickSize=18, isDiff=False,
+                    currUnit=None, targetUnit=None,
+                    latTicks=np.array([-90,-60,-30,0,30,60,90])):
+
+        if (data == None) and (spec == None):
+            logging.error('No data was passed to plotTimeLat')
+        elif (data == None) and (spec != None):
+            data     = self.data[spec]
+            currUnit = self.unit[spec]
+
+        fig, ax = plt.subplots(1, 1, figsize=(15,8))
+
+        # Initialize local variables
+        _usr_cmap      = 'viridis'
+        _isNeg         = False
+        _isMixingRatio = True
+
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
+
+        _latTickLabels = self.__getLatTickLabels(latTicks)
+
+        # Set colormap
+        if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
+            _usr_cmap = 'RdBu_r'
+            _isNeg = True
+        if cmap is not None:
+            _usr_cmap = cmap
+
+        # Plot data
+        im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _scaleFactor, cmap=_usr_cmap)
+
+        # Change axis limits
+        if _isNeg:
+            im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
+        ax.set_ylim([-90, 90])
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
+
+
+        ax.set_ylabel('Latitude', fontsize=labelFtSize)
+        ax.set_yticks(latTicks)
+        ax.set_yticklabels(_latTickLabels)
+        ax.set_xlabel('Time', fontsize=labelFtSize)
+        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
+        ax.set_title('Temporal latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     fontsize=labelFtSize)
+        ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
+
+        if show_colorbar:
+            cb = fig.colorbar(im, ax=ax, shrink=1.0, orientation='vertical', pad=0.04)
+            if cbTitle is not None:
+                cb.set_label(cbTitle, fontsize=labelFtSize)
+            else:
+                cb.set_label(_displayUnit, fontsize=labelFtSize)
+            cb.ax.tick_params(axis='y', which='major', labelsize=labelTickSize)
+        else:
+            cb = None
+
+        return im, cb, fig
+
+    def plotTimeLon(self, data=None, spec=None,
+                    cmap=None, xlim=None, ylim=None,
+                    show_colorbar=True, cbTitle=None,
+                    labelFtSize=18, labelTickSize=18, isDiff=False,
+                    currUnit=None, targetUnit=None,
+                    lonTicks=np.array([-180,-120,-60,0,60,120,180])):
+
+        if (data == None) and (spec == None):
+            logging.error('No data was passed to plotTimeLon')
+        elif (data == None) and (spec != None):
+            data     = self.data[spec]
+            currUnit = self.unit[spec]
+
+        fig, ax = plt.subplots(1, 1, figsize=(15,8))
+
+        # Initialize local variables
+        _usr_cmap      = 'viridis'
+        _isNeg         = False
+        _isMixingRatio = True
+
+        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+
+        if RC == WRONG_UNIT:
+            targetUnit = currUnit
+            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            _isMixingRatio = False
+
+        lonShift = 180
+        _lonTickLabels = self.__getLonTickLabels(lonTicks + lonShift, isCentered=self.isCentered)
+
+        # Set colormap
+        if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
+            _usr_cmap = 'RdBu_r'
+            _isNeg = True
+        if cmap is not None:
+            _usr_cmap = cmap
+
+        # Plot data
+        im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _scaleFactor, cmap=_usr_cmap)
+
+        # Change axis limits
+        if _isNeg:
+            im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
+        if _isMixingRatio:
+            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMin = 'ppbv'
+            if Min < 1.0E+00:
+                Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMin = 'pptv'
+            elif Min > 1.0E+03:
+                Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMin = 'ppmv'
+            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMax = 'ppbv'
+            if Max < 1.0E+00:
+                Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMax = 'pptv'
+            elif Max > 1.0E+03:
+                Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMax = 'ppmv'
+            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            uMean= 'ppbv'
+            if Mean < 1.0E+00:
+                Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
+                uMean= 'pptv'
+            elif Mean > 1.0E+03:
+                Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
+                uMean = 'ppmv'
+        else:
+            Min  = np.min(data * _scaleFactor)
+            uMin = targetUnit
+            Max  = np.max(data * _scaleFactor)
+            uMax = targetUnit
+            Mean = np.mean(data * _scaleFactor)
+            uMean= targetUnit
+
+        ax.set_ylabel('Longitude', fontsize=labelFtSize)
+        ax.set_yticks(lonTicks + lonShift)
+        ax.set_yticklabels(_lonTickLabels)
+        ax.set_xlabel('Time', fontsize=labelFtSize)
+        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
+        ax.set_title('Temporal longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     fontsize=labelFtSize)
+        ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
+
+        if show_colorbar:
+            cb = fig.colorbar(im, ax=ax, shrink=1.0, orientation='vertical', pad=0.04)
+            if cbTitle is not None:
+                cb.set_label(cbTitle, fontsize=labelFtSize)
+            else:
+                cb.set_label(_displayUnit, fontsize=labelFtSize)
+            cb.ax.tick_params(axis='y', which='major', labelsize=labelTickSize)
+        else:
+            cb = None
 
         return im, cb, fig
 

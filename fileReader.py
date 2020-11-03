@@ -86,13 +86,16 @@ class fileHandler:
             self.logList[_log] = sorted(glob(os.path.join(self.rootFolder, _fileName)))
             for _logName in self.logList[_log]:
                 _start = _logName.index(_delim1) + len(_delim1)
-                _jobID = _logName[_start:_logName.index(_delim2,_start)]
-                if _jobID not in _jobIDs:
-                    _jobIDs.append(_jobID)
-                    if _logName[-3:] == '.gz':
-                        _runDates.append(_logName[-16:-3])
-                    else:
-                        _runDates.append(_logName[-13:])
+                try:
+                    _jobID = _logName[_start:_logName.index(_delim2,_start)]
+                    if _jobID not in _jobIDs:
+                        _jobIDs.append(_jobID)
+                        if _logName[-3:] == '.gz':
+                            _runDates.append(_logName[-16:-3])
+                        else:
+                            _runDates.append(_logName[-13:])
+                except:
+                    _jobID = 999999
             if len(self.logList[_log]) > 0:
                 logging.debug('Found {:2d} log files for component {:4s}'.format(len(self.logList[_log]), _log))
         logging.debug('.. corresponding to job IDs:')

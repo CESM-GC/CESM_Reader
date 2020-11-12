@@ -756,7 +756,7 @@ class CESM_Reader:
                     RC = SUCCESS
                 elif self.timeAveraging == False:
                     im, cb, fig = self.plotTimeAlt(spec=spec, targetUnit=targetUnit,
-                                                   ylim=ylim, xlim=xlim,
+                                                   cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
                                                    labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -771,7 +771,7 @@ class CESM_Reader:
                     RC = SUCCESS
                 elif self.timeAveraging == False:
                     im, cb, fig = self.plotTimeLat(spec=spec, targetUnit=targetUnit,
-                                                   ylim=ylim, xlim=xlim,
+                                                   cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
                                                    labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -1147,7 +1147,7 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotTimeAlt(self, data=None, spec=None,
-                    cmap=None, xlim=None, ylim=None,
+                    cmap=None, clim=None, xlim=None, ylim=None,
                     show_colorbar=True, cbTitle=None,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     currUnit=None, targetUnit=None):
@@ -1185,6 +1185,13 @@ class CESM_Reader:
         # Change axis limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
+        elif clim is not None:
+            _tmpclim = np.array(im.get_clim())
+            if np.isfinite(clim[0]):
+                _tmpclim[0] = clim[0]
+            if np.isfinite(clim[1]):
+                _tmpclim[1] = clim[1]
+            im.set_clim(_tmpclim)
         if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
             if np.isfinite(ylim[0]):
@@ -1257,7 +1264,7 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotTimeLat(self, data=None, spec=None,
-                    cmap=None, xlim=None, ylim=None,
+                    cmap=None, clim=None, xlim=None, ylim=None,
                     show_colorbar=True, cbTitle=None,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     currUnit=None, targetUnit=None,
@@ -1298,6 +1305,13 @@ class CESM_Reader:
         # Change axis limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
+        elif clim is not None:
+            _tmpclim = np.array(im.get_clim())
+            if np.isfinite(clim[0]):
+                _tmpclim[0] = clim[0]
+            if np.isfinite(clim[1]):
+                _tmpclim[1] = clim[1]
+            im.set_clim(_tmpclim)
         ax.set_ylim([-90, 90])
         if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
@@ -1371,7 +1385,7 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotTimeLon(self, data=None, spec=None,
-                    cmap=None, xlim=None, ylim=None,
+                    cmap=None, clim=None, xlim=None, ylim=None,
                     show_colorbar=True, cbTitle=None,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     currUnit=None, targetUnit=None,
@@ -1413,6 +1427,13 @@ class CESM_Reader:
         # Change axis limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
+        elif clim is not None:
+            _tmpclim = np.array(im.get_clim())
+            if np.isfinite(clim[0]):
+                _tmpclim[0] = clim[0]
+            if np.isfinite(clim[1]):
+                _tmpclim[1] = clim[1]
+            im.set_clim(_tmpclim)
         if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
             if np.isfinite(ylim[0]):

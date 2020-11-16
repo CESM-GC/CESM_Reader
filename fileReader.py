@@ -146,7 +146,7 @@ class CESM_Reader:
         if fId == None:
             raise ValueError('Could not figure out grid characteristics for component CAM')
         self.pEdge   = fId['hyai'][:]*fId['P0'][:]/1.0E+02+fId['hybi'][:]*1013.25 #hPa
-        self.pMid    = fId['lev'] #(self.pEdge[1:]+self.pEdge[:-1])/2.0 # hPa
+        self.pMid    = fId['lev'][:] #(self.pEdge[1:]+self.pEdge[:-1])/2.0 # hPa
         self.timeMid = np.array(())
         self.lat     = fId['lat'][:].data
         self.lon     = fId['lon'][:].data
@@ -645,6 +645,70 @@ class CESM_Reader:
 
         if doPlot:
             self.plot(species=self.include, plotUnit=plotUnit, debug=debug)
+
+    def save(self, fileName=None,
+             debug=False):
+
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+        if debug:
+            logging.basicConfig(level=logging.DEBUG)
+        else:
+            logging.basicConfig(level=logging.INFO)
+
+        if not self.loaded:
+            logging.error('Data has not been loaded previously')
+
+        if fileName is None:
+            logging.error('fileName is None!')
+
+        if not self.timeAveraging:
+            logging.error('Function save not yet implemented for timeAveraging = False')
+
+        # Create file
+        fId = Dataset(fileName, 'w', format="NETCDF4")
+
+        # Add dimensions
+        fId.createDimension('Latitude', self.nLat)
+        fId.createDimension('Longitude', self.nLon)
+        fId.createDimension('Altitude', self.nLev)
+
+        # Add variables
+        vout = fId.createVariable('lat', np.dtype('float32').char, 'Latitude')
+        vout[:] = self.lat
+        vout = fId.createVariable('lon', np.dtype('float32').char, 'Longitude')
+        vout[:] = self.lon
+        vout = fId.createVariable('lev', np.dtype('float32').char, 'Altitude')
+        vout[:] = self.pMid
+        for key in self.data.keys():
+            if ( np.shape(self.data[key]) == (self.nLat, self.nLon) ):
+                # Layer
+                shape = ('Latitude', 'Longitude')
+                transpose = False
+            elif ( np.shape(self.data[key]) == (self.nLev, self.nLat) ):
+                # Zonal
+                shape = ('Altitude', 'Latitude')
+                transpose = False
+            elif ( np.shape(self.data[key]) == (self.nLat) ):
+                # Latitude
+                shape = ('Latitude')
+                transpose = False
+            elif ( np.shape(self.data[key]) == (self.nLon) ):
+                # Longitude
+                shape = ('Longitude')
+                transpose = False
+            elif ( np.shape(self.data[key]) == (self.nLev) ):
+                # Altitude
+                shape = ('Altitude')
+                transpose = False
+            vout = fId.createVariable(key, np.dtype('float32').char, shape)
+            if transpose:
+               vout[:] = np.transpose(self.data[key])
+            else:
+               vout[:] = self.data[key]
+
+        # Close file
+        fId.close()
 
     def plot(self, data=None, species=None, plotUnit=None,
              cmap=None, clim=None, ylim=None, xlim=None,

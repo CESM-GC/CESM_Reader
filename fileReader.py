@@ -459,6 +459,7 @@ class CESM_Reader:
         # Read
         for _comp in self.compList:
             for _tape in self.tapeList[_comp]:
+                filesRead = 0
                 for iFile, file in enumerate(self.fileInst.fileList[_comp][_tape]):
 
                     if (maxFile > 0) and (iFile >= maxFile):
@@ -495,6 +496,7 @@ class CESM_Reader:
 
                             logging.debug('Dealing with file {:03d} for {:s}'.format(
                                     iFile, currDate.strftime("%Y-%m-%d")))
+                            filesRead += 1
 
                             for iSpec, spec in enumerate(self.includePerTape[_comp][_tape]):
                                 if firstFile[spec]:
@@ -512,11 +514,11 @@ class CESM_Reader:
                                         _tsize_2D = (_localSample,) + _tsize_2D
                                         _tsize_3D = (_localSample,) + _tsize_3D
                                         if iSpec == 0:
-                                            _tmpArray_time = np.array(MIN_DATE, dtype=np.datetime64) + np.arange(_localSample)
+                                            _tmpArray_time = np.array(currDate, dtype=np.datetime64) + np.arange(_localSample)
                                             self.timeMid = _tmpArray_time.copy()
                                             _date    = fId['date'][:].data
                                             _timeSec = fId['datesec'][:].data
-                                            self.timeMid[iFile*_localSample:(iFile+1)*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                     timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
+                                            self.timeMid[(filesRead-1)*_localSample:filesRead*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                     timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
                                         _tsize_noT = _size + ()
                                         _tmpArray_noT = np.zeros(_tsize_noT)
                                     _tmpArray       = np.zeros(_tsize)
@@ -526,10 +528,11 @@ class CESM_Reader:
                                     self.unit[spec]  = fId[spec].units
                                 else:
                                     if ((self.timeAveraging == False) and (iSpec == 0)):
+                                        _tmpArray_time = np.array(currDate, dtype=np.datetime64) + np.arange(_localSample)
                                         self.timeMid = np.concatenate((self.timeMid, _tmpArray_time.copy()), axis=0)
                                         _date    = fId['date'][:].data
                                         _timeSec = fId['datesec'][:].data
-                                        self.timeMid[iFile*_localSample:(iFile+1)*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') + \
+                                        self.timeMid[(filesRead-1)*_localSample:filesRead*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') + \
                                                 timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
 
                                 if (len(np.shape(fId[spec])) == 4):
@@ -550,7 +553,7 @@ class CESM_Reader:
                                                 self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis)
                                         nFiles[spec] += 1
                                     else:
-                                        currTimeIndex = iFile * _localSample
+                                        currTimeIndex = (filesRead-1) * _localSample
                                         if doLayer:
                                             self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
                                             if self.diffRun:
@@ -574,7 +577,7 @@ class CESM_Reader:
                                                 self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis_2D)
                                             nFiles[spec] += 1
                                         else:
-                                            currTimeIndex = iFile * _localSample
+                                            currTimeIndex = (filesRead-1) * _localSample
                                             self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis_2D)
                                             if self.diffRun:
                                                 self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec], axis=_avAxis_2D)
@@ -597,7 +600,7 @@ class CESM_Reader:
                                                     self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis_3D_noT)
                                             nFiles[spec] += 1
                                         else:
-                                            currTimeIndex = iFile
+                                            currTimeIndex = filesRead-1
                                             if doLayer:
                                                 self.data[spec][currTimeIndex] = np.mean(fId[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
                                                 if self.diffRun:
@@ -709,6 +712,8 @@ class CESM_Reader:
 
         # Close file
         fId.close()
+
+        print('Data was saved to {:s}'.format(fileName))
 
     def plot(self, data=None, species=None, plotUnit=None,
              cmap=None, clim=None, ylim=None, xlim=None,

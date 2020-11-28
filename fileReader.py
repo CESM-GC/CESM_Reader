@@ -735,10 +735,10 @@ class CESM_Reader:
         if not self.loaded:
             logging.error('Data has not been loaded previously')
 
-        if (data == None) and (species == None):
+        if (not isinstance(data, np.ndarray)) and (species == None):
             logging.error('No data was passed to plot')
 
-        if data == None:
+        if (not isinstance(data, np.ndarray)):
             if isinstance(species, str):
                 spc2Plot = [species]
             elif isinstance(species, list):
@@ -874,9 +874,9 @@ class CESM_Reader:
                   labelFtSize=18, labelTickSize=18, isDiff=False,
                   currUnit=None, targetUnit=None, latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotZonal')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -887,7 +887,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -904,12 +904,12 @@ class CESM_Reader:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.latEdge, self.pEdge, data * _scaleFactor, cmap=_usr_cmap)
+        im = ax.pcolormesh(self.latEdge, self.pEdge, data * _convFactor, cmap=_usr_cmap)
 
         # Change color limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
-        elif clim is not None:
+        if clim is not None:
             _tmpclim = np.array(im.get_clim())
             if np.isfinite(clim[0]):
                 _tmpclim[0] = clim[0]
@@ -918,7 +918,7 @@ class CESM_Reader:
             im.set_clim(_tmpclim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -926,7 +926,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -934,7 +934,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -943,11 +943,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         # Invert pressure axis and log scale
@@ -998,9 +998,9 @@ class CESM_Reader:
                   latTicks=np.array([-90,-60,-30,0,30,60,90]),
                   show_coastlines=True):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray))and (spec == None):
             logging.error('No data was passed to plotLayer')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray))and (spec != None):
             data = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1012,7 +1012,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1036,16 +1036,16 @@ class CESM_Reader:
 
         # Plot data
         if not logScale:
-            im = ax.pcolormesh(self.lonEdge, self.latEdge, data * _scaleFactor, cmap=_usr_cmap)
+            im = ax.pcolormesh(self.lonEdge, self.latEdge, data * _convFactor, cmap=_usr_cmap)
         else:
-            im = ax.pcolormesh(self.lonEdge, self.latEdge, data * _scaleFactor, cmap=_usr_cmap,
-                    norm=colors.LogNorm(vmin=np.min(data * _scaleFactor),
-                                        vmax=np.max(data * _scaleFactor)))
+            im = ax.pcolormesh(self.lonEdge, self.latEdge, data * _convFactor, cmap=_usr_cmap,
+                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                        vmax=np.max(data * _convFactor)))
 
         # Change color limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
-        elif clim is not None:
+        if clim is not None:
             _tmpclim = np.array(im.get_clim())
             if np.isfinite(clim[0]):
                 _tmpclim[0] = clim[0]
@@ -1054,7 +1054,7 @@ class CESM_Reader:
             im.set_clim(_tmpclim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1062,7 +1062,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1070,7 +1070,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1079,11 +1079,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         ax.set_ylim([-90, 90])
@@ -1133,9 +1133,9 @@ class CESM_Reader:
                  labelFtSize=18, labelTickSize=18,
                  currUnit=None, targetUnit=None):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotTime')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1145,7 +1145,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1157,12 +1157,12 @@ class CESM_Reader:
             _isNeg = True
 
         # Plot data
-        im = ax.plot(self.timeMid, data * _scaleFactor)
+        im = ax.plot(self.timeMid, data * _convFactor)
 
         # Change axis limits
         if _isNeg:
             ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
-        elif ylim is not None:
+        if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
             if np.isfinite(ylim[0]):
                 _tmplim[0] = ylim[0]
@@ -1178,7 +1178,7 @@ class CESM_Reader:
             ax.set_xlim(_tmplim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1186,7 +1186,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1194,7 +1194,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1203,11 +1203,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
@@ -1228,9 +1228,9 @@ class CESM_Reader:
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     currUnit=None, targetUnit=None):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotTimeAlt')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1241,7 +1241,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1256,12 +1256,12 @@ class CESM_Reader:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _scaleFactor, cmap=_usr_cmap)
+        im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
 
         # Change axis limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
-        elif clim is not None:
+        if clim is not None:
             _tmpclim = np.array(im.get_clim())
             if np.isfinite(clim[0]):
                 _tmpclim[0] = clim[0]
@@ -1284,7 +1284,7 @@ class CESM_Reader:
             ax.set_xlim(_tmplim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1292,7 +1292,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1300,7 +1300,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1309,11 +1309,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         # Invert pressure axis and log scale
@@ -1346,9 +1346,9 @@ class CESM_Reader:
                     currUnit=None, targetUnit=None,
                     latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotTimeLat')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1359,7 +1359,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1376,12 +1376,12 @@ class CESM_Reader:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _scaleFactor, cmap=_usr_cmap)
+        im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
 
         # Change axis limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
-        elif clim is not None:
+        if clim is not None:
             _tmpclim = np.array(im.get_clim())
             if np.isfinite(clim[0]):
                 _tmpclim[0] = clim[0]
@@ -1405,7 +1405,7 @@ class CESM_Reader:
             ax.set_xlim(_tmplim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1413,7 +1413,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1421,7 +1421,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1430,11 +1430,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
 
@@ -1467,9 +1467,9 @@ class CESM_Reader:
                     currUnit=None, targetUnit=None,
                     lonTicks=np.array([-180,-120,-60,0,60,120,180])):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotTimeLon')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1480,7 +1480,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1498,12 +1498,12 @@ class CESM_Reader:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _scaleFactor, cmap=_usr_cmap)
+        im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
 
         # Change axis limits
         if _isNeg:
             im.set_clim(np.array([-1,1])*np.max(np.abs(im.get_clim())))
-        elif clim is not None:
+        if clim is not None:
             _tmpclim = np.array(im.get_clim())
             if np.isfinite(clim[0]):
                 _tmpclim[0] = clim[0]
@@ -1526,7 +1526,7 @@ class CESM_Reader:
             ax.set_xlim(_tmplim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1534,7 +1534,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1542,7 +1542,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1551,11 +1551,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         ax.set_ylabel('Longitude', fontsize=labelFtSize)
@@ -1585,9 +1585,9 @@ class CESM_Reader:
                      labelFtSize=18, labelTickSize=18,
                      currUnit=None, targetUnit=None):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotAltitude')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1597,7 +1597,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1609,12 +1609,12 @@ class CESM_Reader:
             _isNeg = True
 
         # Plot data
-        im = ax.plot(data * _scaleFactor, self.pMid)
+        im = ax.plot(data * _convFactor, self.pMid)
 
         # Change axis limits
         if _isNeg:
             ax.set_xlim(np.array([-1,1])*np.max(np.abs(ax.get_xlim())))
-        elif ylim is not None:
+        if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
             if np.isfinite(ylim[0]):
                 _tmplim[0] = ylim[0]
@@ -1630,7 +1630,7 @@ class CESM_Reader:
             ax.set_xlim(_tmplim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1638,7 +1638,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1646,7 +1646,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1655,11 +1655,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         # Invert pressure axis and log scale
@@ -1682,9 +1682,9 @@ class CESM_Reader:
                      currUnit=None, targetUnit=None,
                      latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotLatitude')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1694,7 +1694,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1708,13 +1708,13 @@ class CESM_Reader:
             _isNeg = True
 
         # Plot data
-        im = ax.plot(self.lat, data * _scaleFactor)
+        im = ax.plot(self.lat, data * _convFactor)
 
         # Change axis limits
         ax.set_xlim([-90, 90])
         if _isNeg:
             ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
-        elif ylim is not None:
+        if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
             if np.isfinite(ylim[0]):
                 _tmplim[0] = ylim[0]
@@ -1730,7 +1730,7 @@ class CESM_Reader:
             ax.set_xlim(_tmplim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1738,7 +1738,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1746,7 +1746,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1755,11 +1755,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
@@ -1781,9 +1781,9 @@ class CESM_Reader:
                       currUnit=None, targetUnit=None,
                       lonTicks=np.array([-180,-120,-60,0,60,120,180])):
 
-        if (data == None) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec == None):
             logging.error('No data was passed to plotLongitude')
-        elif (data == None) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec != None):
             data     = self.data[spec]
             currUnit = self.unit[spec]
 
@@ -1793,7 +1793,7 @@ class CESM_Reader:
         _isNeg         = False
         _isMixingRatio = True
 
-        _scaleFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = currUnit
@@ -1810,13 +1810,13 @@ class CESM_Reader:
             _isNeg = True
 
         # Plot data
-        im = ax.plot(self.lon, data * _scaleFactor)
+        im = ax.plot(self.lon, data * _convFactor)
 
         # Change axis limits
         ax.set_xlim(np.array([-180, 180]) + lonShift)
         if _isNeg:
             ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
-        elif ylim is not None:
+        if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
             if np.isfinite(ylim[0]):
                 _tmplim[0] = ylim[0]
@@ -1832,7 +1832,7 @@ class CESM_Reader:
             ax.set_xlim(_tmplim)
 
         if _isMixingRatio:
-            Min  = np.min(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
                 Min *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1840,7 +1840,7 @@ class CESM_Reader:
             elif Min > 1.0E+03:
                 Min *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMin = 'ppmv'
-            Max  = np.max(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Max  = np.max(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMax = 'ppbv'
             if Max < 1.0E+00:
                 Max *= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1848,7 +1848,7 @@ class CESM_Reader:
             elif Max > 1.0E+03:
                 Max *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMax = 'ppmv'
-            Mean = np.mean(data * _scaleFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
+            Mean = np.mean(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMean= 'ppbv'
             if Mean < 1.0E+00:
                 Mean*= self.possUnit['ppbv'] / self.possUnit['pptv']
@@ -1857,11 +1857,11 @@ class CESM_Reader:
                 Mean *= self.possUnit['ppbv'] / self.possUnit['ppmv']
                 uMean = 'ppmv'
         else:
-            Min  = np.min(data * _scaleFactor)
+            Min  = np.min(data * _convFactor)
             uMin = targetUnit
-            Max  = np.max(data * _scaleFactor)
+            Max  = np.max(data * _convFactor)
             uMax = targetUnit
-            Mean = np.mean(data * _scaleFactor)
+            Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
         ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
@@ -1878,33 +1878,37 @@ class CESM_Reader:
         return im, cb, fig
 
     def __checkUnit(self, currUnit, targetUnit):
+
+        _convFactor  = 1.0E+00
+        _displayUnit = 'Empty unit'
+        RC = SUCCESS
+
+        if currUnit is None:
+            RC = WRONG_UNIT
         if (targetUnit is not None) and (currUnit is None):
             print('Required targetUnit = {:s}'.format(targetUnit))
             raise ValueError('Could not figure out current unit...')
 
-        _scaleFactor  = 1.0E+00
-        _displayUnit = 'Empty unit'
 
-        RC = SUCCESS
         if (targetUnit is not None) and (targetUnit not in self.possUnit):
             logging.warning('Could not parse targetUnit: {:s}'.format(targetUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
-            return _scaleFactor, _displayUnit, RC
+            return _convFactor, _displayUnit, RC
 
         if (currUnit is not None) and (currUnit not in self.possUnit):
             logging.warning('Could not parse currUnit: {:s}'.format(currUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
-            return _scaleFactor, _displayUnit, RC
+            return _convFactor, _displayUnit, RC
 
         if (currUnit is not None):
             _displayUnit = currUnit
         if (targetUnit is not None):
             _displayUnit = targetUnit
-            _scaleFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
+            _convFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
 
-        return _scaleFactor, _displayUnit, RC
+        return _convFactor, _displayUnit, RC
 
     def __getLatTickLabels(self, latTicks):
         # Latitude ticks

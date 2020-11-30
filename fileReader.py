@@ -770,6 +770,10 @@ class CESM_Reader:
             elif (isinstance(plotUnit, dict)):
                 custUnit_isDict = True
 
+        if logScale and clim is not None:
+            if clim[0] <= 0:
+                logging.error('Specified clim cannot be negative for logScale = True')
+
         for iSpec, spec in enumerate(spc2Plot):
             im       = None
             fig      = None
@@ -791,7 +795,7 @@ class CESM_Reader:
                 if np.shape(self.data[spec]) == self.zonalSize:
                     im, cb, fig = self.plotZonal(spec=spec, targetUnit=targetUnit,
                                                 cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                                show_colorbar=show_colorbar,
+                                                show_colorbar=show_colorbar, logScale=logScale,
                                                 cbTitle=cbTitle, labelFtSize=labelFtSize,
                                                 labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -870,7 +874,7 @@ class CESM_Reader:
 
     def plotZonal(self, data=None, spec=None,
                   cmap=None, clim=None, ylim=None, xlim=None,
-                  show_colorbar=True, cbTitle=None,
+                  show_colorbar=True, cbTitle=None, logScale=False,
                   labelFtSize=18, labelTickSize=18, isDiff=False,
                   currUnit=None, targetUnit=None, latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
@@ -900,11 +904,18 @@ class CESM_Reader:
         if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
             _usr_cmap = 'RdBu_r'
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
         if cmap is not None:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.latEdge, self.pEdge, data * _convFactor, cmap=_usr_cmap)
+        if not logScale:
+            im = ax.pcolormesh(self.latEdge, self.pEdge, data * _convFactor, cmap=_usr_cmap)
+        else:
+            im = ax.pcolormesh(self.latEdge, self.pEdge, data * _convFactor, cmap=_usr_cmap,
+                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                        vmax=np.max(data * _convFactor)))
 
         # Change color limits
         if _isNeg:

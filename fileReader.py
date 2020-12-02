@@ -814,7 +814,7 @@ class CESM_Reader:
             elif self.spatialAveraging.lower() == 'all' and self.timeAveraging == False:
                 if np.size(self.data[spec]) == np.size(self.timeMid):
                     im, cb, fig = self.plotTime(spec=spec, targetUnit=targetUnit,
-                                                ylim=ylim, xlim=xlim,
+                                                ylim=ylim, xlim=xlim, logScale=logScale,
                                                 labelFtSize=labelFtSize,
                                                 labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -823,14 +823,14 @@ class CESM_Reader:
             elif self.spatialAveraging.lower() == 'v altitude':
                 if np.shape(self.data[spec]) == self.altSize:
                     im, cb, fig = self.plotAltitude(spec=spec, targetUnit=targetUnit,
-                                                    ylim=ylim, xlim=xlim,
+                                                    ylim=ylim, xlim=xlim, logScale=logScale,
                                                     labelFtSize=labelFtSize,
                                                     labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 elif self.timeAveraging == False:
                     im, cb, fig = self.plotTimeAlt(spec=spec, targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                                   labelFtSize=labelFtSize,
+                                                   logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 else:
@@ -838,14 +838,14 @@ class CESM_Reader:
             elif self.spatialAveraging.lower() == 'v latitude':
                 if np.shape(self.data[spec]) == self.latSize:
                     im, cb, fig = self.plotLatitude(spec=spec, targetUnit=targetUnit,
-                                                    ylim=ylim, xlim=xlim,
+                                                    ylim=ylim, xlim=xlim, logScale=logScale,
                                                     labelFtSize=labelFtSize,
                                                     labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 elif self.timeAveraging == False:
                     im, cb, fig = self.plotTimeLat(spec=spec, targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                                   labelFtSize=labelFtSize,
+                                                   logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 else:
@@ -853,13 +853,13 @@ class CESM_Reader:
             elif self.spatialAveraging.lower() == 'v longitude':
                 if np.shape(self.data[spec]) == self.lonSize:
                     im, cb, fig = self.plotLongitude(spec=spec, targetUnit=targetUnit,
-                                                     ylim=ylim, xlim=xlim,
+                                                     ylim=ylim, xlim=xlim, logScale=logScale,
                                                      labelFtSize=labelFtSize,
                                                      labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 elif self.timeAveraging == False:
                     im, cb, fig = self.plotTimeLon(spec=spec, targetUnit=targetUnit,
-                                                   ylim=ylim, xlim=xlim,
+                                                   ylim=ylim, xlim=xlim, logScale=logScale,
                                                    labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -1140,7 +1140,8 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotTime(self, data=None, spec=None,
-                 xlim=None, ylim=None, isDiff=False,
+                 xlim=None, ylim=None,
+                 logScale=False, isDiff=False,
                  labelFtSize=18, labelTickSize=18,
                  currUnit=None, targetUnit=None):
 
@@ -1166,6 +1167,8 @@ class CESM_Reader:
         # Set colormap
         if isDiff or (np.min(data) < 0):
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
 
         # Plot data
         im = ax.plot(self.timeMid, data * _convFactor)
@@ -1221,6 +1224,8 @@ class CESM_Reader:
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
+        if logScale:
+            ax.set_yscale('log')
         ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
@@ -1235,7 +1240,7 @@ class CESM_Reader:
 
     def plotTimeAlt(self, data=None, spec=None,
                     cmap=None, clim=None, xlim=None, ylim=None,
-                    show_colorbar=True, cbTitle=None,
+                    show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     currUnit=None, targetUnit=None):
 
@@ -1263,11 +1268,19 @@ class CESM_Reader:
         if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
             _usr_cmap = 'RdBu_r'
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
         if cmap is not None:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        if not logScale:
+           im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        else:
+           im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
+                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                        vmax=np.max(data * _convFactor)))
+
 
         # Change axis limits
         if _isNeg:
@@ -1352,7 +1365,7 @@ class CESM_Reader:
 
     def plotTimeLat(self, data=None, spec=None,
                     cmap=None, clim=None, xlim=None, ylim=None,
-                    show_colorbar=True, cbTitle=None,
+                    show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     currUnit=None, targetUnit=None,
                     latTicks=np.array([-90,-60,-30,0,30,60,90])):
@@ -1383,11 +1396,18 @@ class CESM_Reader:
         if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
             _usr_cmap = 'RdBu_r'
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
         if cmap is not None:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        if not logScale:
+            im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        else:
+            im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
+                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                        vmax=np.max(data * _convFactor)))
 
         # Change axis limits
         if _isNeg:
@@ -1473,7 +1493,7 @@ class CESM_Reader:
 
     def plotTimeLon(self, data=None, spec=None,
                     cmap=None, clim=None, xlim=None, ylim=None,
-                    show_colorbar=True, cbTitle=None,
+                    show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     currUnit=None, targetUnit=None,
                     lonTicks=np.array([-180,-120,-60,0,60,120,180])):
@@ -1505,11 +1525,18 @@ class CESM_Reader:
         if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
             _usr_cmap = 'RdBu_r'
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
         if cmap is not None:
             _usr_cmap = cmap
 
         # Plot data
-        im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        if not logScale:
+            im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        else:
+            im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
+                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                        vmax=np.max(data * _convFactor)))
 
         # Change axis limits
         if _isNeg:

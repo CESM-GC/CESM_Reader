@@ -145,16 +145,17 @@ class CESM_Reader:
                 break;
         if fId == None:
             raise ValueError('Could not figure out grid characteristics for component CAM')
-        self.pEdge   = fId['hyai'][:]*fId['P0'][:]/1.0E+02+fId['hybi'][:]*1013.25 #hPa
-        self.pMid    = fId['lev'][:] #(self.pEdge[1:]+self.pEdge[:-1])/2.0 # hPa
-        self.timeMid = np.array(())
-        self.lat     = fId['lat'][:].data
-        self.lon     = fId['lon'][:].data
-        self.nLat    = len(self.lat)
-        self.nLon    = len(self.lon)
-        self.nLev    = len(self.pMid)
-        self.nTime   = {}
-        self.loaded  = False
+        self.pEdge    = fId['hyai'][:]*fId['P0'][:]/1.0E+02+fId['hybi'][:]*1013.25 #hPa
+        self.pMid     = fId['lev'][:] #(self.pEdge[1:]+self.pEdge[:-1])/2.0 # hPa
+        self.timeMid  = np.array(())
+        self.lat      = fId['lat'][:].data
+        self.lon      = fId['lon'][:].data
+        self.nLat     = len(self.lat)
+        self.nLon     = len(self.lon)
+        self.nLev     = len(self.pMid)
+        self.nTime    = {}
+        self.longName = {}
+        self.loaded   = False
 
         self.isCentered = False
 #         if self.lon[0] >= 0:
@@ -443,7 +444,7 @@ class CESM_Reader:
 
         if maxFile >= 0:
             logging.debug('Only loading {:d} files'.format(maxFile))
-        if minDate > maxDate:
+        if minDate >= maxDate:
             raise ValueError('Minimum date is greater than maximum date!')
         if minDate != MIN_DATE:
             logging.debug('Only loading from  {:s}'.format(minDate.strftime("%Y-%m-%d")))
@@ -500,6 +501,8 @@ class CESM_Reader:
 
                             for iSpec, spec in enumerate(self.includePerTape[_comp][_tape]):
                                 if firstFile[spec]:
+                                    # Get long name for this species
+                                    self.longName[spec] = fId[spec].long_name
                                     # Number of time samples in this file
                                     _localSample = np.shape(fId['time'])[0]
                                     # Number of time samples for all files
@@ -715,7 +718,7 @@ class CESM_Reader:
 
         print('Data was saved to {:s}'.format(fileName))
 
-    def plot(self, data=None, species=None, plotUnit=None,
+    def plot(self, data=None, species=None, dataUnit=None, plotUnit=None,
              cmap=None, clim=None, ylim=None, xlim=None,
              show_colorbar=True, cbTitle=None, logScale=False,
              labelFtSize=18, labelTickSize=18, isDiff=False,
@@ -738,13 +741,14 @@ class CESM_Reader:
         if (not isinstance(data, np.ndarray)) and (species == None):
             logging.error('No data was passed to plot')
 
+        spc2Plot = ['None']
         if (not isinstance(data, np.ndarray)):
             if isinstance(species, str):
                 spc2Plot = [species]
             elif isinstance(species, list):
                 spc2Plot = species
-            else:
-                logging.error('Data type not understood in plot')
+            #else:
+            #    logging.error('Data type not understood in plot')
 
         if self.spatialAveraging.lower() not in ['zonal', 'layer', 'column', 'all', \
                 'v altitude', 'v latitude', 'v longitude']:
@@ -769,6 +773,13 @@ class CESM_Reader:
                 custUnit_isList = True
             elif (isinstance(plotUnit, dict)):
                 custUnit_isDict = True
+        if dataUnit is not None:
+            if isinstance(dataUnit, str):
+                dataUnit_isStr = True
+            elif (isinstance(dataUnit, list)) and (len(dataUnit) == len(spc2Plot)):
+                dataUnit_isList = True
+            elif (isinstance(dataUnit, dict)):
+                dataUnit_isDict = True
 
         if logScale and clim is not None:
             if clim[0] <= 0:
@@ -778,8 +789,12 @@ class CESM_Reader:
             im       = None
             fig      = None
             cb       = None
-            data     = self.data[spec]
-            currUnit = self.unit[spec]
+            currUnit = None
+            currSpec = None
+            if spec != 'None':
+                data     = self.data[spec]
+                currUnit = self.unit[spec]
+                currSpec = spec
             if custUnit_isStr:
                 targetUnit = plotUnit
             elif custUnit_isList:
@@ -790,81 +805,92 @@ class CESM_Reader:
                 except:
                     logging.warning('Could not find targetUnit for species {:s}'.format(spec))
                     targetUnit = 'ppbv'
+            if currUnit is None:
+                if dataUnit_isStr:
+                    currUnit = dataUnit
+                elif dataUnit_isList:
+                    currUnit = dataUnit[iSpec]
+                elif dataUnit_isDict:
+                    try:
+                        currUnit = dataUnit[spec]
+                    except:
+                        logging.warning('Could not find currUnit for species {:s}'.format(spec))
+                        currUnit = 'ppbv'
+            nDim = len(np.shape(data))
             RC = -1
-            if self.spatialAveraging.lower() == 'zonal':
-                if np.shape(self.data[spec]) == self.zonalSize:
-                    im, cb, fig = self.plotZonal(spec=spec, targetUnit=targetUnit,
-                                                cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                                show_colorbar=show_colorbar, logScale=logScale,
-                                                cbTitle=cbTitle, labelFtSize=labelFtSize,
+            if nDim == 1:
+                if np.size(data) == np.size(self.timeMid):
+                    im, cb, fig = self.plotTime(data=data, spec=currSpec, unit=currUnit,
+                                                targetUnit=targetUnit,
+                                                ylim=ylim, xlim=xlim, logScale=logScale,
+                                                labelFtSize=labelFtSize,
                                                 labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
+                elif np.shape(data) == self.altSize:
+                    im, cb, fig = self.plotAltitude(data=data, spec=currSpec, unit=currUnit,
+                                                    targetUnit=targetUnit,
+                                                    ylim=ylim, xlim=xlim, logScale=logScale,
+                                                    labelFtSize=labelFtSize,
+                                                    labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                elif np.shape(data) == self.latSize:
+                    im, cb, fig = self.plotLatitude(data=data, spec=currSpec, unit=currUnit,
+                                                    targetUnit=targetUnit,
+                                                    ylim=ylim, xlim=xlim, logScale=logScale,
+                                                    labelFtSize=labelFtSize,
+                                                    labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                elif np.shape(data) == self.lonSize:
+                    im, cb, fig = self.plotLongitude(data=data, spec=currSpec, unit=currUnit,
+                                                     targetUnit=targetUnit,
+                                                     ylim=ylim, xlim=xlim, logScale=logScale,
+                                                     labelFtSize=labelFtSize,
+                                                     labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
                 else:
-                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
-            elif ((self.spatialAveraging.lower() == 'layer') or (self.spatialAveraging.lower() == 'column')):
-                if np.shape(self.data[spec]) == self.layerSize:
-                    im, cb, fig = self.plotLayer(spec=spec, targetUnit=targetUnit,
+                    logging.error('Species {:s} has wrong shape {:s} for 1-D plot'.format(spec, '{}'.format(np.shape(data))))
+            elif nDim == 2:
+                if np.shape(data) == self.zonalSize:
+                    im, cb, fig = self.plotZonal(data=data, spec=currSpec, unit=currUnit,
+                                                 targetUnit=targetUnit,
                                                  cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
                                                  show_colorbar=show_colorbar, logScale=logScale,
                                                  cbTitle=cbTitle, labelFtSize=labelFtSize,
                                                  labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
-                else:
-                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
-            elif self.spatialAveraging.lower() == 'all' and self.timeAveraging == False:
-                if np.size(self.data[spec]) == np.size(self.timeMid):
-                    im, cb, fig = self.plotTime(spec=spec, targetUnit=targetUnit,
-                                                ylim=ylim, xlim=xlim, logScale=logScale,
-                                                labelFtSize=labelFtSize,
-                                                labelTickSize=labelTickSize, isDiff=isDiff)
+                elif np.shape(data) == self.layerSize:
+                    im, cb, fig = self.plotLayer(data=data, spec=currSpec, unit=currUnit,
+                                                 targetUnit=targetUnit,
+                                                 cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                 show_colorbar=show_colorbar, logScale=logScale,
+                                                 cbTitle=cbTitle, labelFtSize=labelFtSize,
+                                                 labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
-                else:
-                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
-            elif self.spatialAveraging.lower() == 'v altitude':
-                if np.shape(self.data[spec]) == self.altSize:
-                    im, cb, fig = self.plotAltitude(spec=spec, targetUnit=targetUnit,
-                                                    ylim=ylim, xlim=xlim, logScale=logScale,
-                                                    labelFtSize=labelFtSize,
-                                                    labelTickSize=labelTickSize, isDiff=isDiff)
+                elif np.shape(data) == (len(self.timeMid),self.nLev):
+                    im, cb, fig = self.plotTimeAlt(data=data, spec=currSpec, unit=currUnit,
+                                                   targetUnit=targetUnit,
+                                                   cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                   logScale=logScale, labelFtSize=labelFtSize,
+                                                   labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
-                elif self.timeAveraging == False:
-                    im, cb, fig = self.plotTimeAlt(spec=spec, targetUnit=targetUnit,
+                elif np.shape(data) == (len(self.timeMid),self.nLat):
+                    im, cb, fig = self.plotTimeLat(data=data, spec=currSpec, unit=currUnit,
+                                                   targetUnit=targetUnit,
+                                                   cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                   logScale=logScale, labelFtSize=labelFtSize,
+                                                   labelTickSize=labelTickSize, isDiff=isDiff)
+                    RC = SUCCESS
+                elif np.shape(data) == (len(self.timeMid),self.nLon):
+                    im, cb, fig = self.plotTimeLon(data=data, spec=currSpec, unit=currUnit,
+                                                   targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
                                                    logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 else:
-                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
-            elif self.spatialAveraging.lower() == 'v latitude':
-                if np.shape(self.data[spec]) == self.latSize:
-                    im, cb, fig = self.plotLatitude(spec=spec, targetUnit=targetUnit,
-                                                    ylim=ylim, xlim=xlim, logScale=logScale,
-                                                    labelFtSize=labelFtSize,
-                                                    labelTickSize=labelTickSize, isDiff=isDiff)
-                    RC = SUCCESS
-                elif self.timeAveraging == False:
-                    im, cb, fig = self.plotTimeLat(spec=spec, targetUnit=targetUnit,
-                                                   cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
-                                                   logScale=logScale, labelFtSize=labelFtSize,
-                                                   labelTickSize=labelTickSize, isDiff=isDiff)
-                    RC = SUCCESS
-                else:
-                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
-            elif self.spatialAveraging.lower() == 'v longitude':
-                if np.shape(self.data[spec]) == self.lonSize:
-                    im, cb, fig = self.plotLongitude(spec=spec, targetUnit=targetUnit,
-                                                     ylim=ylim, xlim=xlim, logScale=logScale,
-                                                     labelFtSize=labelFtSize,
-                                                     labelTickSize=labelTickSize, isDiff=isDiff)
-                    RC = SUCCESS
-                elif self.timeAveraging == False:
-                    im, cb, fig = self.plotTimeLon(spec=spec, targetUnit=targetUnit,
-                                                   ylim=ylim, xlim=xlim, logScale=logScale,
-                                                   labelFtSize=labelFtSize,
-                                                   labelTickSize=labelTickSize, isDiff=isDiff)
-                    RC = SUCCESS
-                else:
-                    logging.error('Species {:s} has wrong shape {:s} for spatialAverage = {:s}'.format(spec, '{}'.format(np.shape(self.data[spec])), self.spatialAveraging))
+                    logging.error('Species {:s} has wrong shape {:s} for 2-D plot'.format(spec, '{}'.format(np.shape(data))))
+            else:
+                logging.error('Data appears to be >2D. Not sure how to plot higher dimensional data')
             if RC == SUCCESS:
                 imageDict[spec] = im
                 cbDict[spec] = cb
@@ -876,13 +902,13 @@ class CESM_Reader:
                   cmap=None, clim=None, ylim=None, xlim=None,
                   show_colorbar=True, cbTitle=None, logScale=False,
                   labelFtSize=18, labelTickSize=18, isDiff=False,
-                  currUnit=None, targetUnit=None, latTicks=np.array([-90,-60,-30,0,30,60,90])):
+                  unit=None, targetUnit=None, latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotZonal')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -890,12 +916,16 @@ class CESM_Reader:
         _usr_cmap      = 'viridis'
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
@@ -983,7 +1013,8 @@ class CESM_Reader:
         ax.set_xlabel('Latitude', fontsize=labelFtSize)
         ax.set_xticks(latTicks)
         ax.set_xticklabels(_latTickLabels)
-        ax.set_title('{:s} zonally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_title('{:s} zonally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
@@ -1004,16 +1035,16 @@ class CESM_Reader:
                   cmap=None, clim=None, xlim=None, ylim=None,
                   show_colorbar=True, cbTitle=None, logScale=False,
                   labelFtSize=18, labelTickSize=18, isDiff=False,
-                  currUnit = None, targetUnit=None,
+                  unit = None, targetUnit=None,
                   lonTicks=np.array([-180,-120,-60,0,60,120,180]),
                   latTicks=np.array([-90,-60,-30,0,30,60,90]),
                   show_coastlines=True):
 
-        if (not isinstance(data, np.ndarray))and (spec == None):
+        if (not isinstance(data, np.ndarray))and (spec is None):
             logging.error('No data was passed to plotLayer')
-        elif (not isinstance(data, np.ndarray))and (spec != None):
+        elif (not isinstance(data, np.ndarray))and (spec is not None):
             data = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8),
                                subplot_kw={'projection': ccrs.PlateCarree(central_longitude=0.0)})
@@ -1022,12 +1053,16 @@ class CESM_Reader:
         _usr_cmap      = 'viridis'
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         #lonShift = 0
@@ -1120,7 +1155,8 @@ class CESM_Reader:
         ax.set_xticks(lonTicks)
         ax.set_xticklabels(_lonTickLabels)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
-        ax.set_title('{:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_title('{:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
 
@@ -1143,25 +1179,29 @@ class CESM_Reader:
                  xlim=None, ylim=None,
                  logScale=False, isDiff=False,
                  labelFtSize=18, labelTickSize=18,
-                 currUnit=None, targetUnit=None):
+                 unit=None, targetUnit=None):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotTime')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         # Set colormap
@@ -1226,10 +1266,11 @@ class CESM_Reader:
 
         if logScale:
             ax.set_yscale('log')
-        ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
-        ax.set_title('{:s} globally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            ax.set_title('{:s} globally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
@@ -1242,13 +1283,13 @@ class CESM_Reader:
                     cmap=None, clim=None, xlim=None, ylim=None,
                     show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
-                    currUnit=None, targetUnit=None):
+                    unit=None, targetUnit=None):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotTimeAlt')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1256,12 +1297,16 @@ class CESM_Reader:
         _usr_cmap      = 'viridis'
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         # Set colormap
@@ -1346,7 +1391,8 @@ class CESM_Reader:
         ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
-        ax.set_title('Temporal altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_title('Temporal altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
@@ -1367,14 +1413,14 @@ class CESM_Reader:
                     cmap=None, clim=None, xlim=None, ylim=None,
                     show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
-                    currUnit=None, targetUnit=None,
+                    unit=None, targetUnit=None,
                     latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotTimeLat')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1382,12 +1428,16 @@ class CESM_Reader:
         _usr_cmap      = 'viridis'
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
@@ -1474,7 +1524,8 @@ class CESM_Reader:
         ax.set_yticklabels(_latTickLabels)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
-        ax.set_title('Temporal latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_title('Temporal latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
@@ -1495,14 +1546,14 @@ class CESM_Reader:
                     cmap=None, clim=None, xlim=None, ylim=None,
                     show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
-                    currUnit=None, targetUnit=None,
+                    unit=None, targetUnit=None,
                     lonTicks=np.array([-180,-120,-60,0,60,120,180])):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotTimeLon')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1510,12 +1561,16 @@ class CESM_Reader:
         _usr_cmap      = 'viridis'
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         lonShift = 180
@@ -1601,7 +1656,8 @@ class CESM_Reader:
         ax.set_yticklabels(_lonTickLabels)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
-        ax.set_title('Temporal longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_title('Temporal longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
@@ -1621,25 +1677,29 @@ class CESM_Reader:
     def plotAltitude(self, data=None, spec=None,
                      xlim=None, ylim=None, isDiff=False,
                      labelFtSize=18, labelTickSize=18,
-                     currUnit=None, targetUnit=None):
+                     unit=None, targetUnit=None):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotAltitude')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         # Set colormap
@@ -1703,9 +1763,10 @@ class CESM_Reader:
         # Invert pressure axis and log scale
         ax.invert_yaxis()
         ax.set_yscale('log')
-        ax.set_xlabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
-        ax.set_title('Altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_xlabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            ax.set_title('Altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
@@ -1717,26 +1778,30 @@ class CESM_Reader:
     def plotLatitude(self, data=None, spec=None,
                      xlim=None, ylim=None, isDiff=False,
                      labelFtSize=18, labelTickSize=18,
-                     currUnit=None, targetUnit=None,
+                     unit=None, targetUnit=None,
                      latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotLatitude')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
@@ -1800,11 +1865,12 @@ class CESM_Reader:
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
-        ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Latitude', fontsize=labelFtSize)
         ax.set_xticks(latTicks)
         ax.set_xticklabels(_latTickLabels)
-        ax.set_title('Latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            ax.set_title('Latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
@@ -1816,26 +1882,30 @@ class CESM_Reader:
     def plotLongitude(self, data=None, spec=None,
                       xlim=None, ylim=None, isDiff=False,
                       labelFtSize=18, labelTickSize=18,
-                      currUnit=None, targetUnit=None,
+                      unit=None, targetUnit=None,
                       lonTicks=np.array([-180,-120,-60,0,60,120,180])):
 
-        if (not isinstance(data, np.ndarray)) and (spec == None):
+        if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotLongitude')
-        elif (not isinstance(data, np.ndarray)) and (spec != None):
+        elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data     = self.data[spec]
-            currUnit = self.unit[spec]
+            unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
         # Initialize local variables
         _isNeg         = False
         _isMixingRatio = True
+        RC             = SUCCESS
+        _convFactor    = 1.0E+00
+        _displayUnit   = 'None'
 
-        _convFactor, _displayUnit, RC = self.__checkUnit(currUnit, targetUnit)
+        if unit is not None:
+            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
-            targetUnit = currUnit
-            logging.warning('Keeping {:s} as plotting unit'.format(currUnit))
+            targetUnit = unit
+            logging.warning('Keeping {:s} as plotting unit'.format(unit))
             _isMixingRatio = False
 
         #lonShift = 0
@@ -1902,11 +1972,12 @@ class CESM_Reader:
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
 
-        ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
         ax.set_xlabel('Longitude', fontsize=labelFtSize)
         ax.set_xticks(lonTicks + lonShift)
         ax.set_xticklabels(_lonTickLabels)
-        ax.set_title('Longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
+        if spec is not None:
+            ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            ax.set_title('Longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
                      format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)

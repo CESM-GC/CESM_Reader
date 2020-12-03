@@ -915,7 +915,7 @@ class CESM_Reader:
         if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotZonal')
         elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
+            data = self.data[spec]
             unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
@@ -998,6 +998,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         # Invert pressure axis and log scale
         ax.invert_yaxis()
@@ -1022,8 +1025,9 @@ class CESM_Reader:
         ax.set_xticks(latTicks)
         ax.set_xticklabels(_latTickLabels)
         if spec is not None:
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('{:s} zonally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -1139,6 +1143,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         ax.set_ylim([-90, 90])
         if ylim is not None:
@@ -1164,8 +1171,9 @@ class CESM_Reader:
         ax.set_xticklabels(_lonTickLabels)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
         if spec is not None:
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('{:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
 
         if show_colorbar:
@@ -1271,6 +1279,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         if logScale:
             ax.set_yscale('log')
@@ -1278,8 +1289,9 @@ class CESM_Reader:
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
         if spec is not None:
             ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('{:s} globally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -1392,6 +1404,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         # Invert pressure axis and log scale
         ax.invert_yaxis()
@@ -1400,8 +1415,9 @@ class CESM_Reader:
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
         if spec is not None:
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -1525,6 +1541,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
 
         ax.set_ylabel('Latitude', fontsize=labelFtSize)
@@ -1533,8 +1552,9 @@ class CESM_Reader:
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
         if spec is not None:
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -1658,6 +1678,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         ax.set_ylabel('Longitude', fontsize=labelFtSize)
         ax.set_yticks(lonTicks + lonShift)
@@ -1665,8 +1688,9 @@ class CESM_Reader:
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
         if spec is not None:
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -1769,6 +1793,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         # Invert pressure axis and log scale
         ax.invert_yaxis()
@@ -1778,8 +1805,9 @@ class CESM_Reader:
             ax.set_xscale('log')
         if spec is not None:
             ax.set_xlabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('Altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -1878,6 +1906,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         ax.set_xlabel('Latitude', fontsize=labelFtSize)
         ax.set_xticks(latTicks)
@@ -1886,8 +1917,9 @@ class CESM_Reader:
             ax.set_yscale('log')
         if spec is not None:
             ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('Latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -1989,6 +2021,9 @@ class CESM_Reader:
             uMax = targetUnit
             Mean = np.mean(data * _convFactor)
             uMean= targetUnit
+        uMin  = self.__fancyUnit(uMin)
+        uMax  = self.__fancyUnit(uMax)
+        uMean = self.__fancyUnit(uMean)
 
         ax.set_xlabel('Longitude', fontsize=labelFtSize)
         ax.set_xticks(lonTicks + lonShift)
@@ -1997,8 +2032,9 @@ class CESM_Reader:
             ax.set_yscale('log')
         if spec is not None:
             ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
+            _fancySpec = self.__fancySpec(spec)
             ax.set_title('Longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
-                     format(spec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
+                     format(_fancySpec, _displayUnit, Min, uMin, Max, uMax, Mean, uMean),
                      fontsize=labelFtSize)
         ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
 
@@ -2022,21 +2058,34 @@ class CESM_Reader:
             logging.warning('Could not parse targetUnit: {:s}'.format(targetUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
-            return _convFactor, _displayUnit, RC
-
-        if (currUnit is not None) and (currUnit not in self.possUnit):
+        elif (currUnit is not None) and (currUnit not in self.possUnit):
             logging.warning('Could not parse currUnit: {:s}'.format(currUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
-            return _convFactor, _displayUnit, RC
+        else:
+            if currUnit is not None:
+                _displayUnit = currUnit
+            if targetUnit is not None:
+                _displayUnit = targetUnit
+                _convFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
 
-        if (currUnit is not None):
-            _displayUnit = currUnit
-        if (targetUnit is not None):
-            _displayUnit = targetUnit
-            _convFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
+        _displayUnit = self.__fancyUnit(_displayUnit)
 
         return _convFactor, _displayUnit, RC
+
+    def __fancyUnit(self, unit):
+
+        for superscript in ['1', '2', '3', '4']:
+            unit = unit.replace(superscript, '$^' + superscript + '$')
+
+        return unit
+
+    def __fancySpec(self, spec):
+
+        for subscript in ['1', '2', '3', '4', '5', '6', '7', '8', '9']:
+            spec = spec.replace(subscript, '$_' + subscript + '$')
+
+        return spec
 
     def __getLatTickLabels(self, latTicks):
         # Latitude ticks

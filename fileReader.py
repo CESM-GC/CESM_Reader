@@ -419,16 +419,19 @@ class CESM_Reader:
         _avAxis_2D = ()
         _avAxis_3D = ()
         _size_3D   = ()
+        _size_2D   = ()
         for _dim in _avAxis:
             _tmp = _dim
             if _dim > levDim:
                 _tmp -= 1
                 _avAxis_3D += (_tmp,)
+                _avAxis_2D += (_tmp,)
             elif _dim < levDim:
                 _avAxis_3D += (_tmp,)
         for _tmp in _size:
             if _tmp != self.nLev:
                 _size_3D += (_tmp,)
+                _size_2D += (_tmp,)
 
         _avAxis_2D_noT = _avAxis_2D
         _axAxis_3D_noT = _avAxis_3D
@@ -747,24 +750,29 @@ class CESM_Reader:
                 spc2Plot = [species]
             elif isinstance(species, list):
                 spc2Plot = species
-            #else:
-            #    logging.error('Data type not understood in plot')
+            for spec in spc2Plot:
+                if spec not in self.include:
+                    logging.error('Species {:s} is not part of loaded species'.format(spec))
+                    return imageDict, cbDict, figDict
 
-        if self.spatialAveraging.lower() not in ['zonal', 'layer', 'column', 'all', \
-                'v altitude', 'v latitude', 'v longitude']:
-            logging.error('No plotting method exists for spatialAveraging = {:s}'.
-                          format(self.spatialAveraging))
-            return imageDict, cbDict, figDict
+            if self.spatialAveraging.lower() not in ['zonal', 'layer', 'column', 'all', \
+                    'v altitude', 'v latitude', 'v longitude']:
+                logging.error('No plotting method exists for spatialAveraging = {:s}'.
+                              format(self.spatialAveraging))
+                return imageDict, cbDict, figDict
 
-        if ((self.timeAveraging == False) and (self.spatialAveraging.lower() not in ['all', \
-                'v altitude', 'v latitude', 'v longitude'])):
-            logging.error('No plotting method exists to plot non-globally averaged temporal variations')
-            return imageDict, cbDict, figDict
+            if ((self.timeAveraging == False) and (self.spatialAveraging.lower() not in ['all', \
+                    'v altitude', 'v latitude', 'v longitude'])):
+                logging.error('No plotting method exists to plot non-globally averaged temporal variations')
+                return imageDict, cbDict, figDict
 
-        custUnit_isStr = False
-        custUnit_isList= False
-        custUnit_isDict= False
-        targetUnit = 'ppbv'
+        custUnit_isStr  = False
+        custUnit_isList = False
+        custUnit_isDict = False
+        targetUnit      = 'ppbv'
+        dataUnit_isStr  = False
+        dataUnit_isList = False
+        dataUnit_isDict = False
 
         if plotUnit is not None:
             if isinstance(plotUnit, str):
@@ -1676,7 +1684,7 @@ class CESM_Reader:
 
     def plotAltitude(self, data=None, spec=None,
                      xlim=None, ylim=None, isDiff=False,
-                     labelFtSize=18, labelTickSize=18,
+                     logScale=False, labelFtSize=18, labelTickSize=18,
                      unit=None, targetUnit=None):
 
         if (not isinstance(data, np.ndarray)) and (spec is None):
@@ -1705,6 +1713,8 @@ class CESM_Reader:
         # Set colormap
         if isDiff or (np.min(data) < 0):
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
 
         # Plot data
         im = ax.plot(data * _convFactor, self.pMid)
@@ -1764,6 +1774,8 @@ class CESM_Reader:
         ax.invert_yaxis()
         ax.set_yscale('log')
         ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
+        if logScale:
+            ax.set_xscale('log')
         if spec is not None:
             ax.set_xlabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
             ax.set_title('Altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1777,7 +1789,7 @@ class CESM_Reader:
 
     def plotLatitude(self, data=None, spec=None,
                      xlim=None, ylim=None, isDiff=False,
-                     labelFtSize=18, labelTickSize=18,
+                     logScale=False, labelFtSize=18, labelTickSize=18,
                      unit=None, targetUnit=None,
                      latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
@@ -1809,6 +1821,8 @@ class CESM_Reader:
         # Set colormap
         if isDiff or (np.min(data) < 0):
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
 
         # Plot data
         im = ax.plot(self.lat, data * _convFactor)
@@ -1868,6 +1882,8 @@ class CESM_Reader:
         ax.set_xlabel('Latitude', fontsize=labelFtSize)
         ax.set_xticks(latTicks)
         ax.set_xticklabels(_latTickLabels)
+        if logScale:
+            ax.set_yscale('log')
         if spec is not None:
             ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
             ax.set_title('Latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1881,7 +1897,7 @@ class CESM_Reader:
 
     def plotLongitude(self, data=None, spec=None,
                       xlim=None, ylim=None, isDiff=False,
-                      labelFtSize=18, labelTickSize=18,
+                      logScale=False, labelFtSize=18, labelTickSize=18,
                       unit=None, targetUnit=None,
                       lonTicks=np.array([-180,-120,-60,0,60,120,180])):
 
@@ -1916,6 +1932,8 @@ class CESM_Reader:
         # Set colormap
         if isDiff or (np.min(data) < 0):
             _isNeg = True
+            if logScale:
+                logging.error('Logarithmic scale is True, but data is negative!')
 
         # Plot data
         im = ax.plot(self.lon, data * _convFactor)
@@ -1975,6 +1993,8 @@ class CESM_Reader:
         ax.set_xlabel('Longitude', fontsize=labelFtSize)
         ax.set_xticks(lonTicks + lonShift)
         ax.set_xticklabels(_lonTickLabels)
+        if logScale:
+            ax.set_yscale('log')
         if spec is not None:
             ax.set_ylabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
             ax.set_title('Longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1997,7 +2017,6 @@ class CESM_Reader:
         if (targetUnit is not None) and (currUnit is None):
             print('Required targetUnit = {:s}'.format(targetUnit))
             raise ValueError('Could not figure out current unit...')
-
 
         if (targetUnit is not None) and (targetUnit not in self.possUnit):
             logging.warning('Could not parse targetUnit: {:s}'.format(targetUnit))

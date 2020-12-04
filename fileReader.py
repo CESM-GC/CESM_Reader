@@ -147,7 +147,7 @@ class CESM_Reader:
             raise ValueError('Could not figure out grid characteristics for component CAM')
         self.pEdge    = fId['hyai'][:]*fId['P0'][:]/1.0E+02+fId['hybi'][:]*1013.25 #hPa
         self.pMid     = fId['lev'][:] #(self.pEdge[1:]+self.pEdge[:-1])/2.0 # hPa
-        self.timeMid  = np.array(())
+        self.timeMid  = {}
         self.lat      = fId['lat'][:].data
         self.lon      = fId['lon'][:].data
         self.nLat     = len(self.lat)
@@ -462,6 +462,7 @@ class CESM_Reader:
 
         # Read
         for _comp in self.compList:
+            self.timeMid[_comp]        = {}
             for _tape in self.tapeList[_comp]:
                 filesRead = 0
                 for iFile, file in enumerate(self.fileInst.fileList[_comp][_tape]):
@@ -521,10 +522,10 @@ class CESM_Reader:
                                         _tsize_3D = (_localSample,) + _tsize_3D
                                         if iSpec == 0:
                                             _tmpArray_time = np.array(currDate, dtype=np.datetime64) + np.arange(_localSample)
-                                            self.timeMid = _tmpArray_time.copy()
+                                            self.timeMid[_comp][_tape] = _tmpArray_time.copy()
                                             _date    = fId['date'][:].data
                                             _timeSec = fId['datesec'][:].data
-                                            self.timeMid[(filesRead-1)*_localSample:filesRead*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                     timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
+                                            self.timeMid[_comp][_tape][(filesRead-1)*_localSample:filesRead*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') +                                                     timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
                                         _tsize_noT = _size + ()
                                         _tmpArray_noT = np.zeros(_tsize_noT)
                                     _tmpArray       = np.zeros(_tsize)
@@ -535,10 +536,10 @@ class CESM_Reader:
                                 else:
                                     if ((self.timeAveraging == False) and (iSpec == 0)):
                                         _tmpArray_time = np.array(currDate, dtype=np.datetime64) + np.arange(_localSample)
-                                        self.timeMid = np.concatenate((self.timeMid, _tmpArray_time.copy()), axis=0)
+                                        self.timeMid[_comp][_tape] = np.concatenate((self.timeMid[_comp][_tape], _tmpArray_time.copy()), axis=0)
                                         _date    = fId['date'][:].data
                                         _timeSec = fId['datesec'][:].data
-                                        self.timeMid[(filesRead-1)*_localSample:filesRead*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') + \
+                                        self.timeMid[_comp][_tape][(filesRead-1)*_localSample:filesRead*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') + \
                                                 timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
 
                                 if (len(np.shape(fId[spec])) == 4):
@@ -826,8 +827,23 @@ class CESM_Reader:
                         currUnit = 'ppbv'
             nDim = len(np.shape(data))
             RC = -1
+            if currSpec is not None:
+                _comp = self.locat[currSpec][0]
+                _tape = self.locat[currSpec][1]
+                nTime = np.shape(self.timeMid[_comp][_tape])[0]
+            elif not self.timeAveraging:
+                found     = False
+                _expected = np.shape(data)[0]
+                for _comp in self.compList:
+                    for _tape in self.tapeList[_comp]:
+                        if _expected == np.shape(self.timeMid[_comp][_tape])[0]:
+                            nTime = _expected
+                            found = True
+                if not found:
+                    logging.error('Could not find timeMid corresponding to shape of incoming data')
+
             if nDim == 1:
-                if np.size(data) == np.size(self.timeMid):
+                if np.size(data) == nTime:
                     im, cb, fig = self.plotTime(data=data, spec=currSpec, unit=currUnit,
                                                 targetUnit=targetUnit,
                                                 ylim=ylim, xlim=xlim, logScale=logScale,
@@ -874,21 +890,21 @@ class CESM_Reader:
                                                  cbTitle=cbTitle, labelFtSize=labelFtSize,
                                                  labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
-                elif np.shape(data) == (len(self.timeMid),self.nLev):
+                elif np.shape(data) == (nTime,self.nLev):
                     im, cb, fig = self.plotTimeAlt(data=data, spec=currSpec, unit=currUnit,
                                                    targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
                                                    logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
-                elif np.shape(data) == (len(self.timeMid),self.nLat):
+                elif np.shape(data) == (nTime,self.nLat):
                     im, cb, fig = self.plotTimeLat(data=data, spec=currSpec, unit=currUnit,
                                                    targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
                                                    logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
-                elif np.shape(data) == (len(self.timeMid),self.nLon):
+                elif np.shape(data) == (nTime,self.nLon):
                     im, cb, fig = self.plotTimeLon(data=data, spec=currSpec, unit=currUnit,
                                                    targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
@@ -1197,11 +1213,31 @@ class CESM_Reader:
                  labelFtSize=18, labelTickSize=18,
                  unit=None, targetUnit=None):
 
-        if (not isinstance(data, np.ndarray)) and (spec is None):
-            logging.error('No data was passed to plotTime')
-        elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
-            unit = self.unit[spec]
+        im  = None
+        cb  = None
+        fig = None
+
+        if not isinstance(data, np.ndarray):
+            if spec is None:
+                logging.error('No data was passed to plotTime')
+            else:
+                data    = self.data[spec]
+                unit    = self.unit[spec]
+                _comp   = self.locat[spec][0]
+                _tape   = self.locat[spec][1]
+                timeMid = self.timeMid[_comp][_tape]
+        else:
+            # Guess timeMid based on shape of input data.
+            found = False
+            for _comp in self.compList:
+                for _tape in self.tapeList[_comp]:
+                    if np.shape(self.timeMid[_comp][_tape])[0] == np.shape(data)[0]:
+                        timeMid = self.timeMid[_comp][_tape]
+                        found = True
+            if not found:
+                logging.error('Could not find timeMid corresponding to shape of incoming data')
+                return im, cb, fig
+
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1227,7 +1263,7 @@ class CESM_Reader:
                 logging.error('Logarithmic scale is True, but data is negative!')
 
         # Plot data
-        im = ax.plot(self.timeMid, data * _convFactor)
+        im = ax.plot(timeMid, data * _convFactor)
 
         # Change axis limits
         if _isNeg:
@@ -1286,7 +1322,7 @@ class CESM_Reader:
         if logScale:
             ax.set_yscale('log')
         ax.set_xlabel('Time', fontsize=labelFtSize)
-        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
+        ax.set_xlim([timeMid[0], timeMid[-1]])
         if spec is not None:
             ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
             _fancySpec = self.__fancySpec(spec)
@@ -1305,11 +1341,30 @@ class CESM_Reader:
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     unit=None, targetUnit=None):
 
-        if (not isinstance(data, np.ndarray)) and (spec is None):
-            logging.error('No data was passed to plotTimeAlt')
-        elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
-            unit = self.unit[spec]
+        im  = None
+        cb  = None
+        fig = None
+
+        if not isinstance(data, np.ndarray):
+            if spec is None:
+                logging.error('No data was passed to plotTimeAlt')
+            else:
+                data    = self.data[spec]
+                unit    = self.unit[spec]
+                _comp   = self.locat[spec][0]
+                _tape   = self.locat[spec][1]
+                timeMid = self.timeMid[_comp][_tape]
+        else:
+            # Guess timeMid based on shape of input data.
+            found = False
+            for _comp in self.compList:
+                for _tape in self.tapeList[_comp]:
+                    if np.shape(self.timeMid[_comp][_tape])[0] == np.shape(data)[0]:
+                        timeMid = self.timeMid[_comp][_tape]
+                        found = True
+            if not found:
+                logging.error('Could not find timeMid corresponding to shape of incoming data')
+                return im, cb, fig
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1340,9 +1395,9 @@ class CESM_Reader:
 
         # Plot data
         if not logScale:
-           im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+           im = ax.pcolormesh(timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
         else:
-           im = ax.pcolormesh(self.timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
+           im = ax.pcolormesh(timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
                     norm=colors.LogNorm(vmin=np.min(data * _convFactor),
                                         vmax=np.max(data * _convFactor)))
 
@@ -1413,7 +1468,7 @@ class CESM_Reader:
         ax.set_yscale('log')
         ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
         ax.set_xlabel('Time', fontsize=labelFtSize)
-        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
+        ax.set_xlim([timeMid[0], timeMid[-1]])
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1440,11 +1495,30 @@ class CESM_Reader:
                     unit=None, targetUnit=None,
                     latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (not isinstance(data, np.ndarray)) and (spec is None):
-            logging.error('No data was passed to plotTimeLat')
-        elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
-            unit = self.unit[spec]
+        im  = None
+        cb  = None
+        fig = None
+
+        if not isinstance(data, np.ndarray):
+            if spec is None:
+                logging.error('No data was passed to plotTimeLat')
+            else:
+                data    = self.data[spec]
+                unit    = self.unit[spec]
+                _comp   = self.locat[spec][0]
+                _tape   = self.locat[spec][1]
+                timeMid = self.timeMid[_comp][_tape]
+        else:
+            # Guess timeMid based on shape of input data.
+            found = False
+            for _comp in self.compList:
+                for _tape in self.tapeList[_comp]:
+                    if np.shape(self.timeMid[_comp][_tape])[0] == np.shape(data)[0]:
+                        timeMid = self.timeMid[_comp][_tape]
+                        found = True
+            if not found:
+                logging.error('Could not find timeMid corresponding to shape of incoming data')
+                return im, cb, fig
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1477,9 +1551,9 @@ class CESM_Reader:
 
         # Plot data
         if not logScale:
-            im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+            im = ax.pcolormesh(timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
         else:
-            im = ax.pcolormesh(self.timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
+            im = ax.pcolormesh(timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
                     norm=colors.LogNorm(vmin=np.min(data * _convFactor),
                                         vmax=np.max(data * _convFactor)))
 
@@ -1550,7 +1624,7 @@ class CESM_Reader:
         ax.set_yticks(latTicks)
         ax.set_yticklabels(_latTickLabels)
         ax.set_xlabel('Time', fontsize=labelFtSize)
-        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
+        ax.set_xlim([timeMid[0], timeMid[-1]])
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1577,11 +1651,30 @@ class CESM_Reader:
                     unit=None, targetUnit=None,
                     lonTicks=np.array([-180,-120,-60,0,60,120,180])):
 
-        if (not isinstance(data, np.ndarray)) and (spec is None):
-            logging.error('No data was passed to plotTimeLon')
-        elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
-            unit = self.unit[spec]
+        im  = None
+        cb  = None
+        fig = None
+
+        if not isinstance(data, np.ndarray):
+            if spec is None:
+                logging.error('No data was passed to plotTimeLon')
+            else:
+                data    = self.data[spec]
+                unit    = self.unit[spec]
+                _comp   = self.locat[spec][0]
+                _tape   = self.locat[spec][1]
+                timeMid = self.timeMid[_comp][_tape]
+        else:
+            # Guess timeMid based on shape of input data.
+            found = False
+            for _comp in self.compList:
+                for _tape in self.tapeList[_comp]:
+                    if np.shape(self.timeMid[_comp][_tape])[0] == np.shape(data)[0]:
+                        timeMid = self.timeMid[_comp][_tape]
+                        found = True
+            if not found:
+                logging.error('Could not find timeMid corresponding to shape of incoming data')
+                return im, cb, fig
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1615,9 +1708,9 @@ class CESM_Reader:
 
         # Plot data
         if not logScale:
-            im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+            im = ax.pcolormesh(timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
         else:
-            im = ax.pcolormesh(self.timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
+            im = ax.pcolormesh(timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
                     norm=colors.LogNorm(vmin=np.min(data * _convFactor),
                                         vmax=np.max(data * _convFactor)))
 
@@ -1686,7 +1779,7 @@ class CESM_Reader:
         ax.set_yticks(lonTicks + lonShift)
         ax.set_yticklabels(_lonTickLabels)
         ax.set_xlabel('Time', fontsize=labelFtSize)
-        ax.set_xlim([self.timeMid[0], self.timeMid[-1]])
+        ax.set_xlim([timeMid[0], timeMid[-1]])
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1711,11 +1804,12 @@ class CESM_Reader:
                      logScale=False, labelFtSize=18, labelTickSize=18,
                      unit=None, targetUnit=None):
 
-        if (not isinstance(data, np.ndarray)) and (spec is None):
-            logging.error('No data was passed to plotAltitude')
-        elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
-            unit = self.unit[spec]
+        if not isinstance(data, np.ndarray):
+            if spec is None:
+                logging.error('No data was passed to plotAltitude')
+            else:
+                data = self.data[spec]
+                unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1821,11 +1915,12 @@ class CESM_Reader:
                      unit=None, targetUnit=None,
                      latTicks=np.array([-90,-60,-30,0,30,60,90])):
 
-        if (not isinstance(data, np.ndarray)) and (spec is None):
-            logging.error('No data was passed to plotLatitude')
-        elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
-            unit = self.unit[spec]
+        if not isinstance(data, np.ndarray):
+            if spec is None:
+                logging.error('No data was passed to plotLatitude')
+            else:
+                data = self.data[spec]
+                unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1933,11 +2028,12 @@ class CESM_Reader:
                       unit=None, targetUnit=None,
                       lonTicks=np.array([-180,-120,-60,0,60,120,180])):
 
-        if (not isinstance(data, np.ndarray)) and (spec is None):
-            logging.error('No data was passed to plotLongitude')
-        elif (not isinstance(data, np.ndarray)) and (spec is not None):
-            data     = self.data[spec]
-            unit = self.unit[spec]
+        if not isinstance(data, np.ndarray):
+            if spec is None:
+                logging.error('No data was passed to plotLongitude')
+            else:
+                data = self.data[spec]
+                unit = self.unit[spec]
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 

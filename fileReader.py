@@ -830,7 +830,10 @@ class CESM_Reader:
             if currSpec is not None:
                 _comp = self.locat[currSpec][0]
                 _tape = self.locat[currSpec][1]
-                nTime = np.shape(self.timeMid[_comp][_tape])[0]
+                nTime = -1
+                if _comp in self.timeMid.keys():
+                    if _tape in self.timeMid[_comp].keys():
+                        nTime = np.shape(self.timeMid[_comp][_tape])[0]
             elif not self.timeAveraging:
                 found     = False
                 _expected = np.shape(data)[0]

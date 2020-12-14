@@ -474,9 +474,8 @@ class CESM_Reader:
                     if self.diffRun:
                         fileDev  = self.fileInst_dev.fileList[_comp][_tape][iFile]
 
-                    YYYY = int(os.path.basename(fileName)[-19:-15])
-                    MM   = int(os.path.basename(fileName)[-14:-12])
-                    DD   = int(os.path.basename(fileName)[-11:-9])
+                    YYYY, MM, DD = self.__extractDate(fileName)
+
                     currDate = datetime(YYYY, MM, DD)
 
                     # Rather than extracting the date from the file name, we should
@@ -2219,4 +2218,29 @@ class CESM_Reader:
                 tick_label = '0'
             lonTickLabels.append(tick_label)
         return lonTickLabels
+
+    def __extractDate(self, fileName):
+
+        YYYY = -9999
+        MM   = -99
+        DD   = -99
+
+        YYYY = os.path.basename(fileName)[-19:-15]
+        if any(c.isalpha() for c in YYYY):
+            # Then this means that this is a monthly file of the type
+            # YYYY-MM.nc
+            YYYY = int(os.path.basename(fileName)[-10:-6])
+            MM   = int(os.path.basename(fileName)[-5:-3])
+            DD   = 1
+        else:
+            # Then this means that this is a daily file of the type
+            # YYYY-MM-DD-00000.nc
+            YYYY = int(YYYY)
+            MM   = int(os.path.basename(fileName)[-14:-12])
+            DD   = int(os.path.basename(fileName)[-11:-9])
+
+        if (( YYYY < 0 ) or ( MM < 0 ) or ( DD < 0 )):
+            logging.error('Could not properly extract date from {:s}'.format(fileName))
+
+        return YYYY, MM, DD
 

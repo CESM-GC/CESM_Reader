@@ -12,6 +12,7 @@ from cartopy.util import add_cyclic_point
 from datetime import datetime, timedelta
 import cartopy.io.shapereader as shpreader
 import logging
+import yaml
 
 SUCCESS     = 0
 WRONG_UNIT  = 1
@@ -20,6 +21,8 @@ WRONG_SHAPE = 2
 MIN_DATE = datetime(1,1,1)
 MAX_DATE = datetime(9999,12,31)
 reader = shpreader.Reader('/glade/u/home/fritzt/.local/share/cartopy/shapefiles/natural_earth/physical/ne_110m_coastline.shp')
+
+Na = 6.02214E+023
 
 class fileHandler:
     def __init__(self, rootFolder, debug=False):
@@ -136,6 +139,25 @@ class CESM_Reader:
             self.diffRun = True
 
         self.fileInst = fileHandler(rootFolder, debug=debug);
+
+        speciesDatabase = '/glade/u/home/fritzt/GC/Code.12.9.3/Headers/species_database.yml'
+        self.MWRatio = {}
+        MW_g         = {}
+        MW_g['Air']  = 28.97
+        with open(speciesDatabase, 'r') as stream:
+            try:
+                GCdict = yaml.safe_load(stream)
+                keys = GCdict.keys()
+                for spec in keys:
+                    spec_ = spec.upper()
+                    MW_g[spec_] = -1.0
+                    string = 'MW_g'
+                    if string in GCdict[spec].keys():
+                        MW_g[spec_] = GCdict[spec][string]
+                        self.MWRatio[spec_] = MW_g[spec_]/MW_g['Air']
+            except yaml.YAMLError as exc:
+                print(exc)
+
         # Find any CAM output file to load grid characteristics
         _comp = 'cam'
         fId   = None
@@ -185,8 +207,14 @@ class CESM_Reader:
         self.possUnit['ppt']      = 1.0E-12
         self.possUnit['pptv']     = self.possUnit['ppt']
         self.possUnit['pmol/mol'] = self.possUnit['ppt']
+        self.allUnits = []
+        for unit in self.possUnit:
+            self.allUnits += [unit]
+        self.allUnits += ['kg', 'kg/m2', 'DU', 'mDU']
 
-    def register(self, include=[], exclude=[], excludeTape={}, debug=False):
+    def register(self, include=[], exclude=[], excludeTape={},
+                 loadUnit='-', AD_String='MET_AD', Area_String='MET_AREAM2',
+                 debug=False):
 
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
@@ -195,8 +223,19 @@ class CESM_Reader:
         else:
             logging.basicConfig(level=logging.INFO)
 
-        self.include = include
-        self.exclude = exclude
+        self.include     = include
+        self.exclude     = exclude
+        self.loadUnit    = loadUnit
+        if self.loadUnit not in self.possUnit.keys():
+            if self.loadUnit not in ['kg', 'kg/m2']:
+                logging.error('Unknown load unit {:s}'.format(self.loadUnit))
+        self.extras      = []
+        if AD_String is not None:
+             self.Met_AD      = AD_String
+             self.Met_Area    = Area_String
+
+        if self.loadUnit in ['kg', 'kg/m2']:
+            self.extras += [self.Met_AD]
 
         if len(self.include) > 0:
             self.data           = {}
@@ -311,11 +350,35 @@ class CESM_Reader:
                 if (_tape not in self.tapeList[_comp]):
                     self.tapeList[_comp].insert(len(self.tapeList[_comp]), _tape)
 
+            if len(self.extras) > 0:
+                self.extrasPerTape = {}
+
+                tmp = self.extras.copy()
+                for spec in tmp:
+                    self.found[spec] = False
+                    self.locat[spec] = []
+                    for _comp in self.fileInst.comps:
+                        if _comp not in self.extrasPerTape.keys():
+                            self.extrasPerTape[_comp] = {}
+                        for _tape in fId[_comp].keys():
+                            if _tape not in self.extrasPerTape[_comp].keys():
+                                self.extrasPerTape[_comp][_tape] = []
+                            if ((not self.found[spec]) and (spec in fId[_comp][_tape].variables.keys()) and (not IsInExclude(spec))):
+                                self.found[spec] = True
+                                self.locat[spec] = [_comp, _tape]
+                                if spec not in self.extrasPerTape[_comp][_tape]:
+                                    self.extrasPerTape[_comp][_tape] += [spec]
+                                logging.debug('{:20s} was found in component {:s} and type {:s}'.format(spec, _comp, _tape))
+
             # Now close files
             for _comp in fId.keys():
                 for _tape in fId[_comp].keys():
                     fId[_comp][_tape].close()
             del fId
+
+            if self.loadUnit in ['kg', 'kg/m2'] and not self.found[self.Met_AD]:
+                logging.error('Reverting species units to mixing ratio!')
+                self.loadUnit = '-'
 
         else:
             raise ValueError('No species were selected')
@@ -342,13 +405,15 @@ class CESM_Reader:
         doLayer = False
 
         _avMethods = {}
-        _avMethods['zonal']       = 'Data is averaged along the longitudinal axis'
-        _avMethods['layer']       = 'Data is extracted at a given layer, with the iLayer argument. (TOA -> iLayer=0, Surface -> iLayer=-1)'
-        _avMethods['column']      = 'Data is summed along each column'
-        _avMethods['all']         = 'Data is globally averaged (lev, lat, lon)'
-        _avMethods['v altitude']  = 'Data is averaged across longitude and latitude'
-        _avMethods['v latitude']  = 'Data is averaged across longitude and altitude'
-        _avMethods['v longitude'] = 'Data is averaged across latitude and altitude'
+        _avMethods['zonal']      = 'Data is averaged along the longitudinal axis'
+        _avMethods['layer']      = 'Data is extracted at a given layer, with the iLayer argument. (TOA -> iLayer=0, Surface -> iLayer=-1)'
+        _avMethods['column']     = 'Data is summed along each column'
+        _avMethods['all']        = 'Data is globally averaged (lev, lat, lon)'
+        _avMethods['altitude']   = 'Data is averaged across longitude and latitude'
+        _avMethods['latitude']   = 'Data is averaged across longitude and altitude'
+        _avMethods['longitude']  = 'Data is averaged across latitude and altitude'
+        _avMethods['slatitude']  = 'Data is averaged across longitude and summed across altitude'
+        _avMethods['slongitude'] = 'Data is averaged across latitude and summed across altitude'
 
         self.zonalSize   = (self.nLev,self.nLat)
         self.layerSize   = (self.nLat,self.nLon)
@@ -387,21 +452,31 @@ class CESM_Reader:
             _avAxis      = (levDim,latDim,lonDim,)
             _size        = ()
             _scaleFactor = 1.0E+00
-        elif self.spatialAveraging.lower() == 'v altitude':
+        elif self.spatialAveraging.lower() == 'altitude':
             logging.debug('Longitude/Latitude averaging!')
             _avAxis      = (latDim, lonDim,)
             _size        = self.altSize
             _scaleFactor = 1.0E+00
-        elif self.spatialAveraging.lower() == 'v latitude':
+        elif self.spatialAveraging.lower() == 'latitude':
             logging.debug('Longitude/Altitude averaging!')
             _avAxis      = (levDim, lonDim,)
             _size        = self.latSize
             _scaleFactor = 1.0E+00
-        elif self.spatialAveraging.lower() == 'v longitude':
+        elif self.spatialAveraging.lower() == 'longitude':
             logging.debug('Latitude/Altitude averaging!')
             _avAxis      = (levDim, latDim,)
             _size        = self.lonSize
             _scaleFactor = 1.0E+00
+        elif self.spatialAveraging.lower() == 'slatitude':
+            logging.debug('Longitude averaging, altitude sums!')
+            _avAxis      = (levDim, lonDim,)
+            _size        = self.latSize
+            _scaleFactor = self.nLev
+        elif self.spatialAveraging.lower() == 'slongitude':
+            logging.debug('Latitude averaging, altitude sums!')
+            _avAxis      = (levDim, latDim,)
+            _size        = self.lonSize
+            _scaleFactor = self.nLev
         else:
             # This should correspond to the case where:
             # self.spatialAveraging.lower() not in _avMethods.keys():
@@ -456,6 +531,10 @@ class CESM_Reader:
 
         firstFile = {}
         nFiles    = {}
+        isSpecies = {}
+        oldADfile = ''
+        currADfile= ''
+        iADFile   = 0
         for spec in self.include:
             firstFile[spec] = True
             nFiles[spec]    = 0
@@ -474,7 +553,7 @@ class CESM_Reader:
                     if self.diffRun:
                         fileDev  = self.fileInst_dev.fileList[_comp][_tape][iFile]
 
-                    YYYY, MM, DD = self.__extractDate(fileName)
+                    YYYY, MM, DD, _ = self.__extractDate(fileName)
 
                     currDate = datetime(YYYY, MM, DD)
 
@@ -501,6 +580,33 @@ class CESM_Reader:
                             logging.debug('Dealing with file {:03d} for {:s}'.format(
                                     iFile, currDate.strftime("%Y-%m-%d")))
                             filesRead += 1
+
+                            if self.loadUnit in ['kg', 'kg/m2']:
+                                AD_comp    = self.locat[self.Met_AD][0]
+                                AD_tape    = self.locat[self.Met_AD][1]
+                                ADfound    = False
+                                for ADfile in self.fileInst.fileList[AD_comp][AD_tape]:
+                                    AD_YYYY, AD_MM, AD_DD, isMonthly = self.__extractDate(ADfile)
+                                    if (AD_YYYY == YYYY) and (AD_MM == MM):
+                                        if isMonthly:
+                                            ADfound = True
+                                        elif (AD_DD == DD):
+                                            ADfound = True
+                                        if ADfound:
+                                            oldADfile  = currADfile
+                                            currADfile = ADfile
+                                            break;
+                                if oldADfile != currADfile:
+                                    logging.debug('Loading AD file {:s}'.format(currADfile))
+                                    fADId     = Dataset(currADfile, 'r')
+                                    airDens   = fADId[self.Met_AD][:,:,:,:]
+                                    self.area = fADId[self.Met_Area][:,:,:]
+                                    if self.loadUnit == 'kg/m2':
+                                        for iLev in range(self.nLev):
+                                            airDens[:,iLev,:,:] = np.divide(airDens[:,iLev,:,:],self.area)
+                                    if self.diffRun:
+                                        # TMMF, for now
+                                        airDensDev = airDens
 
                             for iSpec, spec in enumerate(self.includePerTape[_comp][_tape]):
                                 if firstFile[spec]:
@@ -531,7 +637,13 @@ class CESM_Reader:
                                     _tmpArray_2D    = np.zeros(_tsize_2D)
                                     _tmpArray_3D    = np.zeros(_tsize_3D)
 
+
+                                    isSpecies[spec] = False
                                     self.unit[spec]  = fId[spec].units
+                                    if self.loadUnit in ['kg', 'kg/m2'] and self.unit[spec] in self.possUnit.keys():
+                                        # This means that the current unit is equivalent to molar mixing ratio
+                                        isSpecies[spec] = True
+                                        self.unit[spec] = self.loadUnit
                                 else:
                                     if ((self.timeAveraging == False) and (iSpec == 0)):
                                         _tmpArray_time = np.array(currDate, dtype=np.datetime64) + np.arange(_localSample)
@@ -550,24 +662,44 @@ class CESM_Reader:
 
                                     if timeAveraging:
                                         if doLayer:
-                                            self.data[spec] += np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
-                                            if self.diffRun:
-                                                self.data[spec] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                                self.data[spec] += np.mean(np.multiply(fId[spec][:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                if self.diffRun:
+                                                    self.data[spec] -= np.mean(np.multiply(fIdDev[spec][:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                            else:
+                                                self.data[spec] += np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                                if self.diffRun:
+                                                    self.data[spec] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
                                         else:
-                                            self.data[spec] += np.mean(fId[spec], axis=_avAxis)
-                                            if self.diffRun:
-                                                self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis)
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                                self.data[spec] += np.mean(np.multiply(fId[spec], airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                if self.diffRun:
+                                                    self.data[spec] -= np.mean(np.multiply(fIdDev[spec], airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                            else:
+                                                self.data[spec] += np.mean(fId[spec], axis=_avAxis)
+                                                if self.diffRun:
+                                                    self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis)
                                         nFiles[spec] += 1
                                     else:
                                         currTimeIndex = (filesRead-1) * _localSample
                                         if doLayer:
-                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
-                                            if self.diffRun:
-                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(fId[spec][:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                if self.diffRun:
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(fIdDev[spec][:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                            else:
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                                if self.diffRun:
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
                                         else:
-                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis)
-                                            if self.diffRun:
-                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec], axis=_avAxis)
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(fId[spec], airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                if self.diffRun:
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(fIdDev[spec], airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                            else:
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis)
+                                                if self.diffRun:
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec], axis=_avAxis)
                                         nFiles[spec] = 1
                                 elif (len(np.shape(fId[spec])) == 3):
                                     # This should make distinction between (time, lat, lon) and (lev, lat, lon)
@@ -756,20 +888,19 @@ class CESM_Reader:
                     return imageDict, cbDict, figDict
 
             if self.spatialAveraging.lower() not in ['zonal', 'layer', 'column', 'all', \
-                    'v altitude', 'v latitude', 'v longitude']:
+                    'altitude', 'latitude', 'longitude']:
                 logging.error('No plotting method exists for spatialAveraging = {:s}'.
                               format(self.spatialAveraging))
                 return imageDict, cbDict, figDict
 
             if ((self.timeAveraging == False) and (self.spatialAveraging.lower() not in ['all', \
-                    'v altitude', 'v latitude', 'v longitude'])):
+                    'altitude', 'latitude', 'longitude'])):
                 logging.error('No plotting method exists to plot non-globally averaged temporal variations')
                 return imageDict, cbDict, figDict
 
         custUnit_isStr  = False
         custUnit_isList = False
         custUnit_isDict = False
-        targetUnit      = 'ppbv'
         dataUnit_isStr  = False
         dataUnit_isList = False
         dataUnit_isDict = False
@@ -803,6 +934,7 @@ class CESM_Reader:
                 data     = self.data[spec]
                 currUnit = self.unit[spec]
                 currSpec = spec
+            targetUnit = currUnit
             if custUnit_isStr:
                 targetUnit = plotUnit
             elif custUnit_isList:
@@ -812,7 +944,6 @@ class CESM_Reader:
                     targetUnit = plotUnit[spec]
                 except:
                     logging.warning('Could not find targetUnit for species {:s}'.format(spec))
-                    targetUnit = 'ppbv'
             if currUnit is None:
                 if dataUnit_isStr:
                     currUnit = dataUnit
@@ -843,6 +974,11 @@ class CESM_Reader:
                             found = True
                 if not found:
                     logging.error('Could not find timeMid corresponding to shape of incoming data')
+
+            if 'DU' in targetUnit and not (spec == 'O3' and currUnit == 'kg/m2'):
+                # Do not plot Dobson units for species other than ozone
+                logging.info('Reverting back plotting unit from {:s} to {:s}'.format(targetUnit, currUnit))
+                targetUnit = currUnit
 
             if nDim == 1:
                 if np.size(data) == nTime:
@@ -941,18 +1077,17 @@ class CESM_Reader:
         # Initialize local variables
         _usr_cmap      = 'viridis'
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
 
@@ -984,7 +1119,7 @@ class CESM_Reader:
                 _tmpclim[1] = clim[1]
             im.set_clim(_tmpclim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -1082,18 +1217,17 @@ class CESM_Reader:
         # Initialize local variables
         _usr_cmap      = 'viridis'
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         #lonShift = 0
         #if (not self.isCentered) and (np.min(lonTicks) < 0):
@@ -1129,7 +1263,7 @@ class CESM_Reader:
                 _tmpclim[1] = clim[1]
             im.set_clim(_tmpclim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -1245,18 +1379,17 @@ class CESM_Reader:
 
         # Initialize local variables
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         # Set colormap
         if isDiff or (np.min(data) < 0):
@@ -1285,7 +1418,7 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -1373,18 +1506,17 @@ class CESM_Reader:
         # Initialize local variables
         _usr_cmap      = 'viridis'
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         # Set colormap
         if isDiff or (np.min(data) < 0) or (np.max(np.abs(data)) == 0):
@@ -1429,7 +1561,7 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -1527,18 +1659,17 @@ class CESM_Reader:
         # Initialize local variables
         _usr_cmap      = 'viridis'
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
 
@@ -1585,7 +1716,7 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -1683,18 +1814,17 @@ class CESM_Reader:
         # Initialize local variables
         _usr_cmap      = 'viridis'
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         lonShift = 180
         _lonTickLabels = self.__getLonTickLabels(lonTicks + lonShift, isCentered=self.isCentered)
@@ -1741,7 +1871,7 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -1817,18 +1947,17 @@ class CESM_Reader:
 
         # Initialize local variables
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         # Set colormap
         if isDiff or (np.min(data) < 0):
@@ -1857,7 +1986,7 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -1928,18 +2057,17 @@ class CESM_Reader:
 
         # Initialize local variables
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         _latTickLabels = self.__getLatTickLabels(latTicks)
 
@@ -1971,7 +2099,7 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -2041,18 +2169,17 @@ class CESM_Reader:
 
         # Initialize local variables
         _isNeg         = False
-        _isMixingRatio = True
+        _isMixRatio    = True
         RC             = SUCCESS
         _convFactor    = 1.0E+00
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
             logging.warning('Keeping {:s} as plotting unit'.format(unit))
-            _isMixingRatio = False
 
         #lonShift = 0
         #if (not self.isCentered) and (np.min(lonTicks) < 0):
@@ -2087,7 +2214,7 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        if _isMixingRatio:
+        if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
             if Min < 1.0E+00:
@@ -2143,7 +2270,8 @@ class CESM_Reader:
     def __checkUnit(self, currUnit, targetUnit):
 
         _convFactor  = 1.0E+00
-        _displayUnit = 'Empty unit'
+        _displayUnit = targetUnit
+        _isMixRatio  = False
         RC = SUCCESS
 
         if currUnit is None:
@@ -2152,24 +2280,30 @@ class CESM_Reader:
             print('Required targetUnit = {:s}'.format(targetUnit))
             raise ValueError('Could not figure out current unit...')
 
-        if (targetUnit is not None) and (targetUnit not in self.possUnit):
+        if (targetUnit is not None) and (targetUnit not in self.allUnits):
             logging.warning('Could not parse targetUnit: {:s}'.format(targetUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
-        elif (currUnit is not None) and (currUnit not in self.possUnit):
+        elif (currUnit is not None) and (currUnit not in self.allUnits):
             logging.warning('Could not parse currUnit: {:s}'.format(currUnit))
             RC = WRONG_UNIT
             _displayUnit = currUnit
-        else:
+        elif currUnit in self.possUnit.keys():
             if currUnit is not None:
                 _displayUnit = currUnit
             if targetUnit is not None:
                 _displayUnit = targetUnit
                 _convFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
+            _isMixRatio = True
+        elif currUnit == 'kg/m2' and 'DU' in targetUnit:
+            # 1 kg/m2 = 6.02E+23 / 48.00E-03 molecules/m2
+            _convFactor  = Na / 48.00E-03 / 2.687E+20
+            if targetUnit == 'mDU':
+                _convFactor *= 1.0E+03
 
         _displayUnit = self.__fancyUnit(_displayUnit)
 
-        return _convFactor, _displayUnit, RC
+        return _convFactor, _displayUnit, _isMixRatio, RC
 
     def __fancyUnit(self, unit):
 
@@ -2221,26 +2355,29 @@ class CESM_Reader:
 
     def __extractDate(self, fileName):
 
-        YYYY = -9999
-        MM   = -99
-        DD   = -99
+        YYYY      = -9999
+        MM        = -99
+        DD        = -99
+        isMonthly = False
 
         YYYY = os.path.basename(fileName)[-19:-15]
         if any(c.isalpha() for c in YYYY):
             # Then this means that this is a monthly file of the type
             # YYYY-MM.nc
-            YYYY = int(os.path.basename(fileName)[-10:-6])
-            MM   = int(os.path.basename(fileName)[-5:-3])
-            DD   = 1
+            YYYY      = int(os.path.basename(fileName)[-10:-6])
+            MM        = int(os.path.basename(fileName)[-5:-3])
+            DD        = 1
+            isMonthly = True
         else:
             # Then this means that this is a daily file of the type
             # YYYY-MM-DD-00000.nc
-            YYYY = int(YYYY)
-            MM   = int(os.path.basename(fileName)[-14:-12])
-            DD   = int(os.path.basename(fileName)[-11:-9])
+            YYYY      = int(YYYY)
+            MM        = int(os.path.basename(fileName)[-14:-12])
+            DD        = int(os.path.basename(fileName)[-11:-9])
+            isMonthly = False
 
         if (( YYYY < 0 ) or ( MM < 0 ) or ( DD < 0 )):
             logging.error('Could not properly extract date from {:s}'.format(fileName))
 
-        return YYYY, MM, DD
+        return YYYY, MM, DD, isMonthly
 

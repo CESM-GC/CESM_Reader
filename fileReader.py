@@ -22,7 +22,9 @@ MIN_DATE = datetime(1,1,1)
 MAX_DATE = datetime(9999,12,31)
 reader = shpreader.Reader('/glade/u/home/fritzt/.local/share/cartopy/shapefiles/natural_earth/physical/ne_110m_coastline.shp')
 
-Na = 6.02214E+023
+Na = 6.02214E+023        # Avogadro's number
+Re = 6.375E+06           # Radius of the Earth [m]
+Se = 4.0 * np.pi * Re**2 # Surface of the Earth [m^2]
 
 class fileHandler:
     def __init__(self, rootFolder, debug=False):
@@ -779,7 +781,14 @@ class CESM_Reader:
                     if _val < 1.0E+00:
                         _val *= self.possUnit[_unit] / self.possUnit['pptv']
                         _unit = 'pptv'
-                    print('{:16s}|{:6.2e} {:s}'.format(spec, _val, _unit))
+                    print('{:16s}| {:6.2e} {:s}'.format(spec, _val, _unit))
+                elif 'kg/m2' in self.unit[spec]:
+                    # Convert from kg/m2 or kg/m2/s to Tg/year
+                    _val  = self.data[spec] * Se * 1.0E-09
+                    if self.unit[spec] == 'kg/m2/s':
+                        _val *= 86400 * 365.25
+                    _unit = 'Tg/year'
+                    print('{:16s}| {:6.2e} {:s}'.format(spec, _val, _unit))
 
         # Canons ready, captain!
         self.loaded = True

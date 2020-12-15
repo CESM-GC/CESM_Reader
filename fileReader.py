@@ -180,6 +180,8 @@ class CESM_Reader:
         self.nTime    = {}
         self.longName = {}
         self.loaded   = False
+        self.area     = np.zeros((self.nLat,self.nLon))
+        self.wArea    = np.zeros((self.nLat,self.nLon))
 
         self.isCentered = False
 #         if self.lon[0] >= 0:
@@ -232,9 +234,10 @@ class CESM_Reader:
             if self.loadUnit not in ['kg', 'kg/m2']:
                 logging.error('Unknown load unit {:s}'.format(self.loadUnit))
         self.extras      = []
+        self.Met_Area    = Area_String
+        self.extras     += [self.Met_Area]
         if AD_String is not None:
              self.Met_AD      = AD_String
-             self.Met_Area    = Area_String
 
         if self.loadUnit in ['kg', 'kg/m2']:
             self.extras += [self.Met_AD]
@@ -410,29 +413,33 @@ class CESM_Reader:
         _avMethods['zonal']      = 'Data is averaged along the longitudinal axis'
         _avMethods['layer']      = 'Data is extracted at a given layer, with the iLayer argument. (TOA -> iLayer=0, Surface -> iLayer=-1)'
         _avMethods['column']     = 'Data is summed along each column'
-        _avMethods['all']        = 'Data is globally averaged (lev, lat, lon)'
+        _avMethods['average']    = 'Data is globally averaged (lev, lat, lon)'
+        _avMethods['aaverage']   = 'Data is area-weighted and globally averaged (lev, lat, lon)'
+        _avMethods['atotal']     = 'Data is area-weighted and globally summed (lev, lat, lon)'
         _avMethods['altitude']   = 'Data is averaged across longitude and latitude'
         _avMethods['latitude']   = 'Data is averaged across longitude and altitude'
         _avMethods['longitude']  = 'Data is averaged across latitude and altitude'
         _avMethods['slatitude']  = 'Data is averaged across longitude and summed across altitude'
         _avMethods['slongitude'] = 'Data is averaged across latitude and summed across altitude'
 
-        self.zonalSize   = (self.nLev,self.nLat)
-        self.layerSize   = (self.nLat,self.nLon)
-        self.altSize     = (self.nLev,)
-        self.latSize     = (self.nLat,)
-        self.lonSize     = (self.nLon,)
-        _size_2D         = self.layerSize
+        self.zonalSize        = (self.nLev,self.nLat)
+        self.layerSize        = (self.nLat,self.nLon)
+        self.altSize          = (self.nLev,)
+        self.latSize          = (self.nLat,)
+        self.lonSize          = (self.nLon,)
+        self.weightByArea     = False
+        self.vertSum          = False
+        _size_2D              = self.layerSize
         if self.spatialAveraging.lower() == 'zonal':
             logging.debug('Zonal averaging will be performed!')
-            _avAxis      = (lonDim,)
-            _size        = self.zonalSize
-            _scaleFactor = 1.0E+00
+            _avAxis           = (lonDim,)
+            _size             = self.zonalSize
+            _scaleFactor      = 1.0E+00
         elif self.spatialAveraging.lower() == 'layer':
-            doLayer      = True
-            _avAxis      = (levDim,)
-            _size        = self.layerSize
-            _scaleFactor = 1.0E+00
+            doLayer           = True
+            _avAxis           = (levDim,)
+            _size             = self.layerSize
+            _scaleFactor      = 1.0E+00
             if isinstance(iLayer, int):
                 logging.debug('Extracting single layer!')
                 self.iLayer = np.array([iLayer])
@@ -446,39 +453,55 @@ class CESM_Reader:
                 logging.error('Argument iLayer was not understood!')
         elif self.spatialAveraging.lower() == 'column':
             logging.debug('Computing column totals!')
-            _avAxis      = (levDim,)
-            _size        = self.layerSize
-            _scaleFactor = self.nLev
-        elif self.spatialAveraging.lower() == 'all':
+            _avAxis           = (levDim,)
+            _size             = self.layerSize
+            _scaleFactor      = 1.0E+00
+            self.vertSum      = True
+        elif self.spatialAveraging.lower() == 'average':
             logging.debug('Global averaging will be performed!')
-            _avAxis      = (levDim,latDim,lonDim,)
-            _size        = ()
-            _scaleFactor = 1.0E+00
+            _avAxis           = (levDim,latDim,lonDim,)
+            _size             = ()
+            _scaleFactor      = 1.0E+00
+        elif self.spatialAveraging.lower() == 'aaverage':
+            logging.debug('Global averaging will be performed!')
+            _avAxis           = (levDim,latDim,lonDim,)
+            _size             = ()
+            _scaleFactor      = self.nLat * self.nLon
+            self.weightByArea = True
+        elif self.spatialAveraging.lower() == 'atotal':
+            logging.debug('Weighting by gridcell area and global averaging will be performed!')
+            _avAxis           = (levDim,latDim,lonDim,)
+            _size             = ()
+            _scaleFactor      = self.nLat * self.nLon
+            self.vertSum      = True
+            self.weightByArea = True
         elif self.spatialAveraging.lower() == 'altitude':
             logging.debug('Longitude/Latitude averaging!')
-            _avAxis      = (latDim, lonDim,)
-            _size        = self.altSize
-            _scaleFactor = 1.0E+00
+            _avAxis           = (latDim, lonDim,)
+            _size             = self.altSize
+            _scaleFactor      = 1.0E+00
         elif self.spatialAveraging.lower() == 'latitude':
             logging.debug('Longitude/Altitude averaging!')
-            _avAxis      = (levDim, lonDim,)
-            _size        = self.latSize
-            _scaleFactor = 1.0E+00
+            _avAxis           = (levDim, lonDim,)
+            _size             = self.latSize
+            _scaleFactor      = 1.0E+00
         elif self.spatialAveraging.lower() == 'longitude':
             logging.debug('Latitude/Altitude averaging!')
-            _avAxis      = (levDim, latDim,)
-            _size        = self.lonSize
-            _scaleFactor = 1.0E+00
+            _avAxis           = (levDim, latDim,)
+            _size             = self.lonSize
+            _scaleFactor      = 1.0E+00
         elif self.spatialAveraging.lower() == 'slatitude':
             logging.debug('Longitude averaging, altitude sums!')
-            _avAxis      = (levDim, lonDim,)
-            _size        = self.latSize
-            _scaleFactor = self.nLev
+            _avAxis           = (levDim, lonDim,)
+            _size             = self.latSize
+            _scaleFactor      = 1.0E+00
+            self.vertSum      = True
         elif self.spatialAveraging.lower() == 'slongitude':
             logging.debug('Latitude averaging, altitude sums!')
-            _avAxis      = (levDim, latDim,)
-            _size        = self.lonSize
-            _scaleFactor = self.nLev
+            _avAxis           = (levDim, latDim,)
+            _size             = self.lonSize
+            _scaleFactor      = 1.0E+00
+            self.vertSum      = True
         else:
             # This should correspond to the case where:
             # self.spatialAveraging.lower() not in _avMethods.keys():
@@ -532,6 +555,7 @@ class CESM_Reader:
             logging.debug('Only loading up to {:s}'.format(maxDate.strftime("%Y-%m-%d")))
 
         firstFile = {}
+        is3D      = {}
         nFiles    = {}
         isSpecies = {}
         oldADfile = ''
@@ -540,6 +564,8 @@ class CESM_Reader:
         for spec in self.include:
             firstFile[spec] = True
             nFiles[spec]    = 0
+            is3D[spec]      = False
+        firstFile[self.Met_Area] = True
 
         # Read
         for _comp in self.compList:
@@ -583,6 +609,16 @@ class CESM_Reader:
                                     iFile, currDate.strftime("%Y-%m-%d")))
                             filesRead += 1
 
+                            if firstFile[self.Met_Area]:
+                                Area_comp = self.locat[self.Met_Area][0]
+                                Area_tape = self.locat[self.Met_Area][1]
+                                AreaFile  = self.fileInst.fileList[Area_comp][Area_tape][0]
+                                fArea     = Dataset(AreaFile, 'r')
+                                self.area = fArea[self.Met_Area][:,:,:]
+                                self.wArea= self.area / np.sum(self.area)
+                                fArea.close()
+                                firstFile[self.Met_Area] = False
+
                             if self.loadUnit in ['kg', 'kg/m2']:
                                 AD_comp    = self.locat[self.Met_AD][0]
                                 AD_tape    = self.locat[self.Met_AD][1]
@@ -602,7 +638,6 @@ class CESM_Reader:
                                     logging.debug('Loading AD file {:s}'.format(currADfile))
                                     fADId     = Dataset(currADfile, 'r')
                                     airDens   = fADId[self.Met_AD][:,:,:,:]
-                                    self.area = fADId[self.Met_Area][:,:,:]
                                     if self.loadUnit == 'kg/m2':
                                         for iLev in range(self.nLev):
                                             airDens[:,iLev,:,:] = np.divide(airDens[:,iLev,:,:],self.area)
@@ -655,55 +690,84 @@ class CESM_Reader:
                                         self.timeMid[_comp][_tape][(filesRead-1)*_localSample:filesRead*_localSample] = np.array([datetime.strptime(str(_currDate), '%Y%m%d') + \
                                                 timedelta(seconds=np.int(_currSec)) for (_currDate, _currSec) in zip(_date, _timeSec)])
 
-                                if (len(np.shape(fId[spec])) == 4):
+                                dataFile   = fId[spec][:].copy()
+                                dimensions = fId[spec].dimensions
+                                if self.diffRun:
+                                    dataFileDev = fIdDev[spec][:].copy()
+
+                                if self.weightByArea:
+                                    if 'lat' in dimensions and 'lon' in dimensions:
+                                        if 'time' in dimensions and 'lev' in dimensions:
+                                            for iTime in range(dataFile.shape[0]):
+                                                for iLev in range(dataFile.shape[1]):
+                                                    dataFile[iTime,iLev,:,:] = np.multiply(dataFile[iTime,iLev,:,:], self.wArea)
+                                                    if self.diffRun:
+                                                        dataFileDev[iTime,iLev,:,:] = np.multiply(dataFileDev[iTime,iLev,:,:], self.wArea)
+                                        elif 'time' in dimensions:
+                                            for iTime in range(dataFile.shape[0]):
+                                                dataFile[iTime,:,:] = np.multiply(dataFile[iTime,:,:], self.wArea)
+                                                if self.diffRun:
+                                                    dataFileDev[iTime,:,:] = np.multiply(dataFileDev[iTime,:,:], self.wArea)
+                                        elif 'lev' in dimensions:
+                                            for iLev in range(dataFile.shape[0]):
+                                                dataFile[iLev,:,:] = np.multiply(dataFile[iLev,:,:], self.wArea)
+                                                if self.diffRun:
+                                                    dataFileDev[iLev,:,:] = np.multiply(dataFileDev[iLev,:,:], self.wArea)
+                                        else:
+                                            dataFile = np.multiply(dataFile, self.wArea)
+                                            if self.diffRun:
+                                                dataFileDev = np.multiply(dataFileDev, self.wArea)
+
+                                if dimensions == ('time', 'lev', 'lat', 'lon'):
                                     # This is made for (time, lev, lat, lon) fields
                                     if firstFile[spec]:
                                         self.data[spec] = _tmpArray.copy()
+                                        is3D[spec]      = True
                                     elif not timeAveraging:
                                         self.data[spec] = np.concatenate((self.data[spec], _tmpArray), axis=0)
 
                                     if timeAveraging:
                                         if doLayer:
                                             if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
-                                                self.data[spec] += np.mean(np.multiply(fId[spec][:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                self.data[spec] += np.mean(np.multiply(dataFile[:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
-                                                    self.data[spec] -= np.mean(np.multiply(fIdDev[spec][:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                    self.data[spec] -= np.mean(np.multiply(dataFileDev[:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
                                             else:
-                                                self.data[spec] += np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                                self.data[spec] += np.mean(dataFile[:,self.iLayer,:,:], axis=_avAxis)
                                                 if self.diffRun:
-                                                    self.data[spec] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                                    self.data[spec] -= np.mean(dataFileDev[:,self.iLayer,:,:], axis=_avAxis)
                                         else:
                                             if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
-                                                self.data[spec] += np.mean(np.multiply(fId[spec], airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                self.data[spec] += np.mean(np.multiply(dataFile, airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
-                                                    self.data[spec] -= np.mean(np.multiply(fIdDev[spec], airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                    self.data[spec] -= np.mean(np.multiply(dataFileDev, airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
                                             else:
-                                                self.data[spec] += np.mean(fId[spec], axis=_avAxis)
+                                                self.data[spec] += np.mean(dataFile, axis=_avAxis)
                                                 if self.diffRun:
-                                                    self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis)
+                                                    self.data[spec] -= np.mean(dataFileDev, axis=_avAxis)
                                         nFiles[spec] += 1
                                     else:
                                         currTimeIndex = (filesRead-1) * _localSample
                                         if doLayer:
                                             if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
-                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(fId[spec][:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(dataFile[:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
-                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(fIdDev[spec][:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(dataFileDev[:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
                                             else:
-                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(dataFile[:,self.iLayer,:,:], axis=_avAxis)
                                                 if self.diffRun:
-                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec][:,self.iLayer,:,:], axis=_avAxis)
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(dataFileDev[:,self.iLayer,:,:], axis=_avAxis)
                                         else:
                                             if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
-                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(fId[spec], airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(dataFile, airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
-                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(fIdDev[spec], airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(dataFileDev, airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
                                             else:
-                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis)
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(dataFile, axis=_avAxis)
                                                 if self.diffRun:
-                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec], axis=_avAxis)
+                                                    self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(dataFileDev, axis=_avAxis)
                                         nFiles[spec] = 1
-                                elif (len(np.shape(fId[spec])) == 3):
+                                elif dimensions == ('time', 'lat', 'lon'):
                                     # This should make distinction between (time, lat, lon) and (lev, lat, lon)
                                     if 'time' in fId.dimensions.keys():
                                         # Then we have a temporally-evolving layer-like field in (time, lat, lon)
@@ -712,46 +776,51 @@ class CESM_Reader:
                                         elif not timeAveraging:
                                             self.data[spec] = np.concatenate((self.data[spec], _tmpArray_2D), axis=0)
                                         if timeAveraging:
-                                            self.data[spec] += np.mean(fId[spec], axis=_avAxis_2D)
+                                            self.data[spec] += np.mean(dataFile, axis=_avAxis_2D)
                                             if self.diffRun:
-                                                self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis_2D)
+                                                self.data[spec] -= np.mean(dataFileDev, axis=_avAxis_2D)
                                             nFiles[spec] += 1
                                         else:
                                             currTimeIndex = (filesRead-1) * _localSample
-                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(fId[spec], axis=_avAxis_2D)
+                                            self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(dataFile, axis=_avAxis_2D)
                                             if self.diffRun:
-                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(fIdDev[spec], axis=_avAxis_2D)
+                                                self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(dataFileDev, axis=_avAxis_2D)
                                             nFiles[spec] = 1
-                                    else:
-                                        # Else, we have a constant (lev, lat, lon) field
-                                        if firstFile[spec]:
-                                            self.data[spec] = _tmpArray_noT.copy()
-                                        elif not timeAveraging:
-                                            self.data[spec] = np.concatenate((self.data[spec], _tmpArray_noT), axis=0)
+                                elif dimensions == ('lev', 'lat', 'lon'):
+                                    # Else, we have a constant (lev, lat, lon) field
+                                    if firstFile[spec]:
+                                        self.data[spec] = _tmpArray_noT.copy()
+                                        is3D[spec]      = True
+                                    elif not timeAveraging:
+                                        self.data[spec] = np.concatenate((self.data[spec], _tmpArray_noT), axis=0)
 
-                                        if timeAveraging:
-                                            if doLayer:
-                                                self.data[spec] += np.mean(fId[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
-                                                if self.diffRun:
-                                                    self.data[spec] -= np.mean(fIdDev[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
-                                            else:
-                                                self.data[spec] += np.mean(fId[spec], axis=_avAxis_3D_noT)
-                                                if self.diffRun:
-                                                    self.data[spec] -= np.mean(fIdDev[spec], axis=_avAxis_3D_noT)
-                                            nFiles[spec] += 1
+                                    if timeAveraging:
+                                        if doLayer:
+                                            self.data[spec] += np.mean(dataFile[self.iLayer,:,:], axis=_avAxis_2D_noT)
+                                            if self.diffRun:
+                                                self.data[spec] -= np.mean(dataFileDev[self.iLayer,:,:], axis=_avAxis_2D_noT)
                                         else:
-                                            currTimeIndex = filesRead-1
-                                            if doLayer:
-                                                self.data[spec][currTimeIndex] = np.mean(fId[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
-                                                if self.diffRun:
-                                                    self.data[spec][currTimeIndex] -= np.mean(fIdDev[spec][self.iLayer,:,:], axis=_avAxis_2D_noT)
-                                            else:
-                                                self.data[spec][currTimeIndex] = np.mean(fId[spec], axis=_avAxis_3D_noT)
-                                                if self.diffRun:
-                                                    self.data[spec][currTimeIndex] -= np.mean(fIdDev[spec], axis=_avAxis_3D_noT)
-                                            nFiles[spec] = 1
+                                            self.data[spec] += np.mean(dataFile, axis=_avAxis_3D_noT)
+                                            if self.diffRun:
+                                                self.data[spec] -= np.mean(dataFileDev, axis=_avAxis_3D_noT)
+                                        nFiles[spec] += 1
+                                    else:
+                                        currTimeIndex = filesRead-1
+                                        if doLayer:
+                                            self.data[spec][currTimeIndex] = np.mean(dataFile[self.iLayer,:,:], axis=_avAxis_2D_noT)
+                                            if self.diffRun:
+                                                self.data[spec][currTimeIndex] -= np.mean(dataFileDev[self.iLayer,:,:], axis=_avAxis_2D_noT)
+                                        else:
+                                            self.data[spec][currTimeIndex] = np.mean(dataFile, axis=_avAxis_3D_noT)
+                                            if self.diffRun:
+                                                self.data[spec][currTimeIndex] -= np.mean(dataFileDev, axis=_avAxis_3D_noT)
+                                        nFiles[spec] = 1
                                 else:
-                                    logging.warning('{:s} will not be read from file! Found {:d} dimensions'.format(spec, len(np.shape(fId[spec]))))
+                                    logging.warning('{:s} will not be read from file! Found {:d} dimensions'.format(spec, len(np.shape(dataFile))))
+
+                                del dataFile
+                                if self.diffRun:
+                                    del dataFileDev
 
                                 if firstFile[spec]:
                                     firstFile[spec] = False
@@ -759,35 +828,42 @@ class CESM_Reader:
         for iSpec, spec in enumerate(self.include):
             if nFiles[spec] > 0:
                 self.data[spec] *= _scaleFactor / nFiles[spec]
+                if is3D[spec]:
+                    self.data[spec] *= self.nLev
             else:
                 raise ValueError('No files were found for {:s}'.format(spec))
             # If we performed a global and temporal average, then just print out
             if len(np.shape(self.data[spec])) == 0:
+                _val  = self.data[spec]
+                _unit = self.unit[spec]
                 if iSpec == 0:
-                    print('Globally and temporal averaged mixing ratios')
+                    print('\nGlobally and temporal averaged quantities')
+                    print('(Only printing non-zero total quantities)')
                     print('----------------+--------------------------')
-                if self.unit[spec] in self.possUnit.keys():
-                    _val  = self.data[spec]
-                    _unit = self.unit[spec]
-                    if _val < 1.0E-02:
-                        _val *= self.possUnit[_unit] / self.possUnit['ppth']
-                        _unit = 'ppth'
-                    if _val < 1.0E+00:
-                        _val *= self.possUnit[_unit] / self.possUnit['ppmv']
-                        _unit = 'ppmv'
-                    if _val < 1.0E+00:
-                        _val *= self.possUnit[_unit] / self.possUnit['ppbv']
-                        _unit = 'ppbv'
-                    if _val < 1.0E+00:
-                        _val *= self.possUnit[_unit] / self.possUnit['pptv']
-                        _unit = 'pptv'
-                    print('{:16s}| {:6.2e} {:s}'.format(spec, _val, _unit))
-                elif 'kg/m2' in self.unit[spec]:
-                    # Convert from kg/m2 or kg/m2/s to Tg/year
-                    _val  = self.data[spec] * Se * 1.0E-09
-                    if self.unit[spec] == 'kg/m2/s':
-                        _val *= 86400 * 365.25
-                    _unit = 'Tg/year'
+                if _val != 0.0E+00:
+                    if _unit in self.possUnit.keys():
+                        if _val < 1.0E-02:
+                            _val *= self.possUnit[_unit] / self.possUnit['ppth']
+                            _unit = 'ppth'
+                        if _val < 1.0E+00:
+                            _val *= self.possUnit[_unit] / self.possUnit['ppmv']
+                            _unit = 'ppmv'
+                        if _val < 1.0E+00:
+                            _val *= self.possUnit[_unit] / self.possUnit['ppbv']
+                            _unit = 'ppbv'
+                        if _val < 1.0E+00:
+                            _val *= self.possUnit[_unit] / self.possUnit['pptv']
+                            _unit = 'pptv'
+                    elif self.spatialAveraging.lower() == 'atotal' and 'kg/m2' in _unit:
+                        # Convert from kg/m2 or kg/m2/s to Tg/year
+                        if np.sum(self.area) > 0:
+                            _val *= np.sum(self.area)
+                        else:
+                            _val *= Se
+                        _val *= 1.0E-09
+                        if self.unit[spec] == 'kg/m2/s':
+                            _val *= 86400 * 365.25
+                        _unit = 'Tg/year'
                     print('{:16s}| {:6.2e} {:s}'.format(spec, _val, _unit))
 
         # Canons ready, captain!
@@ -896,14 +972,8 @@ class CESM_Reader:
                     logging.error('Species {:s} is not part of loaded species'.format(spec))
                     return imageDict, cbDict, figDict
 
-            if self.spatialAveraging.lower() not in ['zonal', 'layer', 'column', 'all', \
-                    'altitude', 'latitude', 'longitude']:
-                logging.error('No plotting method exists for spatialAveraging = {:s}'.
-                              format(self.spatialAveraging))
-                return imageDict, cbDict, figDict
-
-            if ((self.timeAveraging == False) and (self.spatialAveraging.lower() not in ['all', \
-                    'altitude', 'latitude', 'longitude'])):
+            if ((self.timeAveraging == False) and (self.spatialAveraging.lower() not in ['average', \
+                    'aaverage', 'atotal', 'altitude', 'latitude', 'longitude', 'slatitude', 'slongitude'])):
                 logging.error('No plotting method exists to plot non-globally averaged temporal variations')
                 return imageDict, cbDict, figDict
 

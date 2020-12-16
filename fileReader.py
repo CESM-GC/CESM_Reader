@@ -2349,12 +2349,13 @@ class CESM_Reader:
     def __checkUnit(self, currUnit, targetUnit):
 
         _convFactor  = 1.0E+00
-        _displayUnit = targetUnit
+        _displayUnit = currUnit
         _isMixRatio  = False
-        RC = SUCCESS
+        RC           = SUCCESS
 
         if currUnit is None:
             RC = WRONG_UNIT
+
         if (targetUnit is not None) and (currUnit is None):
             print('Required targetUnit = {:s}'.format(targetUnit))
             raise ValueError('Could not figure out current unit...')
@@ -2362,23 +2363,27 @@ class CESM_Reader:
         if (targetUnit is not None) and (targetUnit not in self.allUnits):
             logging.warning('Could not parse targetUnit: {:s}'.format(targetUnit))
             RC = WRONG_UNIT
-            _displayUnit = currUnit
         elif (currUnit is not None) and (currUnit not in self.allUnits):
             logging.warning('Could not parse currUnit: {:s}'.format(currUnit))
             RC = WRONG_UNIT
-            _displayUnit = currUnit
-        elif currUnit in self.possUnit.keys():
-            if currUnit is not None:
-                _displayUnit = currUnit
+        elif currUnit in self.possUnit.keys() and targetUnit in self.possUnit.keys():
+            # Then this is a mixing ratio
+            _isMixRatio = True
             if targetUnit is not None:
                 _displayUnit = targetUnit
                 _convFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
-            _isMixRatio = True
-        elif currUnit == 'kg/m2' and 'DU' in targetUnit:
-            # 1 kg/m2 = 6.02E+23 / 48.00E-03 molecules/m2
-            _convFactor  = Na / 48.00E-03 / 2.687E+20
-            if targetUnit == 'mDU':
-                _convFactor *= 1.0E+03
+        elif currUnit == 'kg/m2' and (targetUnit in ['kg/m2', 'DU', 'mDU']):
+            _displayUnit = targetUnit
+            if 'DU' in targetUnit:
+                # 1 kg/m2 = 6.02E+23 / 48.00E-03 molecules/m2
+                _convFactor  = Na / 48.00E-03 / 2.687E+20
+                if targetUnit == 'mDU':
+                    _convFactor *= 1.0E+03
+        elif currUnit == 'kg' and (targetUnit in ['kg']):
+            _displayUnit = targetUnit
+        else:
+            logging.warning('Could not convert currUnit: {:s} to {:s}'.format(currUnit,targetUnit))
+            RC = WRONG_UNIT
 
         _displayUnit = self.__fancyUnit(_displayUnit)
 

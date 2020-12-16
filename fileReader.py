@@ -22,9 +22,10 @@ MIN_DATE = datetime(1,1,1)
 MAX_DATE = datetime(9999,12,31)
 reader = shpreader.Reader('/glade/u/home/fritzt/.local/share/cartopy/shapefiles/natural_earth/physical/ne_110m_coastline.shp')
 
-Na = 6.02214E+023        # Avogadro's number
-Re = 6.375E+06           # Radius of the Earth [m]
-Se = 4.0 * np.pi * Re**2 # Surface of the Earth [m^2]
+Na     = 6.02214E+023        # Avogadro's number
+Re     = 6.375E+06           # Radius of the Earth [m]
+Se     = 4.0 * np.pi * Re**2 # Surface of the Earth [m^2]
+MW_Air = 28.97               # Molar weight of air [g/mole]
 
 class fileHandler:
     def __init__(self, rootFolder, debug=False):
@@ -145,7 +146,7 @@ class CESM_Reader:
         speciesDatabase = '/glade/u/home/fritzt/GC/Code.12.9.3/Headers/species_database.yml'
         self.MWRatio = {}
         MW_g         = {}
-        MW_g['Air']  = 28.97
+        MW_g['Air']  = MW_Air
         with open(speciesDatabase, 'r') as stream:
             try:
                 GCdict = yaml.safe_load(stream)
@@ -214,7 +215,7 @@ class CESM_Reader:
         self.allUnits = []
         for unit in self.possUnit:
             self.allUnits += [unit]
-        self.allUnits += ['kg', 'kg/m2', 'DU', 'mDU']
+        self.allUnits += ['kg', 'kg/m2', 'g/m2', 'DU', 'mDU', 'molec/cm2']
 
     def register(self, include=[], exclude=[], excludeTape={},
                  loadUnit='-', AD_String='MET_AD', Area_String='MET_AREAM2',
@@ -641,9 +642,15 @@ class CESM_Reader:
                                     if self.loadUnit == 'kg/m2':
                                         for iLev in range(self.nLev):
                                             airDens[:,iLev,:,:] = np.divide(airDens[:,iLev,:,:],self.area)
+                                    fADId.close()
+
                                     if self.diffRun:
-                                        # TMMF, for now
-                                        airDensDev = airDens
+                                        fADId = Dataset(currADfile.replace(self.rootFolder, self.devFolder), 'r')
+                                        airDensDev = fADId[self.Met_AD][:,:,:,:]
+                                        if self.loadUnit == 'kg/m2':
+                                            for iLev in range(self.nLev):
+                                                airDensDev[:,iLev,:,:] = np.divide(airDensDev[:,iLev,:,:],self.area)
+                                        fADId.close()
 
                             for iSpec, spec in enumerate(self.includePerTape[_comp][_tape]):
                                 if firstFile[spec]:
@@ -1162,7 +1169,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -1302,7 +1309,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -1464,7 +1471,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -1591,7 +1598,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -1744,7 +1751,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -1899,7 +1906,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -2032,7 +2039,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -2142,7 +2149,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -2254,7 +2261,7 @@ class CESM_Reader:
         _displayUnit   = 'None'
 
         if unit is not None:
-            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit)
+            _convFactor, _displayUnit, _isMixRatio, RC = self.__checkUnit(unit, targetUnit, spec)
 
         if RC == WRONG_UNIT:
             targetUnit = unit
@@ -2346,7 +2353,7 @@ class CESM_Reader:
 
         return im, cb, fig
 
-    def __checkUnit(self, currUnit, targetUnit):
+    def __checkUnit(self, currUnit, targetUnit, currSpec=None):
 
         _convFactor  = 1.0E+00
         _displayUnit = currUnit
@@ -2372,9 +2379,21 @@ class CESM_Reader:
             if targetUnit is not None:
                 _displayUnit = targetUnit
                 _convFactor = self.possUnit[currUnit]/self.possUnit[targetUnit]
-        elif currUnit == 'kg/m2' and (targetUnit in ['kg/m2', 'DU', 'mDU']):
-            _displayUnit = targetUnit
+        elif currUnit == 'kg/m2' and (targetUnit in ['kg/m2', 'g/m2', 'molec/cm2', 'DU', 'mDU']):
+            if targetUnit == 'molec/cm2':
+                if currSpec is None:
+                    logging.warning('Could not convert to molec/cm2 as species could not be parsed')
+                elif currSpec not in self.MWRatio.keys():
+                    logging.warning('Could not find molar weight for species {:s}'.format(currSpec))
+                else:
+                    _displayUnit = targetUnit
+                    MW = self.MWRatio[currSpec] * MW_Air
+                    _convFactor = 1.0E+03 / MW * Na * 1.0E-04
+            if targetUnit == 'g/m2':
+                _displayUnit = targetUnit
+                _convFactor = 1.0E+03
             if 'DU' in targetUnit:
+                _displayUnit = targetUnit
                 # 1 kg/m2 = 6.02E+23 / 48.00E-03 molecules/m2
                 _convFactor  = Na / 48.00E-03 / 2.687E+20
                 if targetUnit == 'mDU':

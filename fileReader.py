@@ -19,9 +19,11 @@ SUCCESS     = 0
 WRONG_UNIT  = 1
 WRONG_SHAPE = 2
 
-MIN_DATE = datetime(1,1,1)
-MAX_DATE = datetime(9999,12,31)
-reader = shpreader.Reader('/glade/u/home/fritzt/.local/share/cartopy/shapefiles/natural_earth/physical/ne_110m_coastline.shp')
+MIN_DATE  = datetime(1,1,1)
+MAX_DATE  = datetime(9999,12,31)
+shapeFile = '/glade/u/home/fritzt/.local/share/cartopy/shapefiles/natural_earth/physical/ne_110m_coastline.shp'
+if os.path.exists(shapeFile):
+    reader = shpreader.Reader(shapeFile)
 
 Na     = 6.02214E+023        # Avogadro's number
 Re     = 6.375E+06           # Radius of the Earth [m]
@@ -126,7 +128,7 @@ class fileHandler:
                     print('No mention of HEMCO_Config.rc was found in {:s}'.format(_mRecentFile))
 
 class CESM_Reader:
-    def __init__(self, rootFolder, devFolder=None, surfPres=1013.25, debug=False):
+    def __init__(self, rootFolder, devFolder=None, speciesDatabase=None, surfPres=1013.25, debug=False):
 
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
@@ -144,7 +146,11 @@ class CESM_Reader:
 
         self.fileInst = fileHandler(rootFolder, debug=debug);
 
-        speciesDatabase = '/glade/u/home/fritzt/GC/Code.12.9.3/Headers/species_database.yml'
+        if speciesDatabase is None:
+            speciesDatabase = '/glade/u/home/fritzt/GC/Code.12.9.3/Headers/species_database.yml'
+        if not os.path.exists(speciesDatabase):
+            logging.error('Could not find species database {:s}'.format(speciesDatabase))
+            logging.error('Please specify path to species_database.yml')
         self.MWRatio = {}
         MW_g         = {}
         MW_g['Air']  = MW_Air
@@ -2368,7 +2374,9 @@ class CESM_Reader:
             print('Required targetUnit = {:s}'.format(targetUnit))
             raise ValueError('Could not figure out current unit...')
 
-        if (targetUnit is not None) and (targetUnit not in self.allUnits):
+        if (targetUnit is not None) and currUnit == targetUnit:
+            _displayUnit = targetUnit
+        elif (targetUnit is not None) and (targetUnit not in self.allUnits):
             logging.warning('Could not parse targetUnit: {:s}'.format(targetUnit))
             RC = WRONG_UNIT
         elif (currUnit is not None) and (currUnit not in self.allUnits):

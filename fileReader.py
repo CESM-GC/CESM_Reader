@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import cartopy.io.shapereader as shpreader
 import logging
 import yaml
+import regex as re
 
 SUCCESS     = 0
 WRONG_UNIT  = 1
@@ -2410,10 +2411,7 @@ class CESM_Reader:
 
     def __fancyUnit(self, unit):
 
-        for superscript in ['1', '2', '3', '4']:
-            unit = unit.replace(superscript, '$^' + superscript + '$')
-
-        return unit
+        return re.sub(r"([-+]?\d+)", r'$^{\1}$', unit)
 
     def __fancySpec(self, spec):
 

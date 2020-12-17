@@ -151,6 +151,7 @@ class CESM_Reader:
         if not os.path.exists(speciesDatabase):
             logging.error('Could not find species database {:s}'.format(speciesDatabase))
             logging.error('Please specify path to species_database.yml')
+
         self.MWRatio = {}
         MW_g         = {}
         MW_g['Air']  = MW_Air
@@ -618,13 +619,17 @@ class CESM_Reader:
                             filesRead += 1
 
                             if firstFile[self.Met_Area]:
-                                Area_comp = self.locat[self.Met_Area][0]
-                                Area_tape = self.locat[self.Met_Area][1]
-                                AreaFile  = self.fileInst.fileList[Area_comp][Area_tape][0]
-                                fArea     = Dataset(AreaFile, 'r')
-                                self.area = fArea[self.Met_Area][:,:,:]
+                                if self.Met_Area not in self.locat.keys() or not self.locat[self.Met_Area]:
+                                    self.area = gridArea(lonEdge=self.lonEdge,
+                                                         latEdge=self.latEdge)
+                                else:
+                                    Area_comp = self.locat[self.Met_Area][0]
+                                    Area_tape = self.locat[self.Met_Area][1]
+                                    AreaFile  = self.fileInst.fileList[Area_comp][Area_tape][0]
+                                    fArea     = Dataset(AreaFile, 'r')
+                                    self.area = fArea[self.Met_Area][:,:,:]
+                                    fArea.close()
                                 self.wArea= self.area / np.sum(self.area)
-                                fArea.close()
                                 firstFile[self.Met_Area] = False
 
                             if self.loadUnit in ['kg', 'kg/m2']:
@@ -2489,4 +2494,30 @@ class CESM_Reader:
             logging.error('Could not properly extract date from {:s}'.format(fileName))
 
         return YYYY, MM, DD, isMonthly
+
+def gridArea(lonEdge=None, latEdge=None):
+
+    # Calculate grid areas (m2) for a rectilinear grid
+    lon_abs = []
+    lastlon = lonEdge[0]
+    for i,lon in enumerate(lonEdge):
+        while lon < lastlon:
+            lon += 360.0
+        lon_abs.append(lon)
+        lastlon = lon
+
+    n_lat = latEdge.size - 1
+    n_lon = lonEdge.size - 1
+    # Total surface area in each meridional band (allows for a regional domain)
+    merid_area = 2*np.pi*Re*Re*(lon_abs[-1]-lon_abs[0])/(360.0*n_lon)
+    grid_area = np.empty([n_lon,n_lat])
+    latEdge_rad = np.pi * latEdge / 180.0
+    for i_lat in range(n_lat):
+        # Fraction of meridional area which applies
+        sin_diff = np.sin(latEdge_rad[i_lat+1])-np.sin(latEdge_rad[i_lat])
+        grid_area[:,i_lat] = sin_diff * merid_area
+
+    # Transpose this - convention is [lat, lon]
+    grid_area = np.transpose(grid_area)
+    return grid_area
 

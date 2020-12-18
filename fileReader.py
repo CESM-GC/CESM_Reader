@@ -223,7 +223,8 @@ class CESM_Reader:
         self.allUnits = []
         for unit in self.possUnit:
             self.allUnits += [unit]
-        self.allUnits += ['kg', 'kg/m2', 'g/m2', 'DU', 'mDU', 'molec/cm2']
+        self.allUnits += ['kg', 'kg/m2', 'g/m2', 'DU', 'mDU', 'molec/cm2',
+                          'm/s', 'cm/s', 'mm/day']
 
     def register(self, include=[], exclude=[], excludeTape={},
                  loadUnit='-', AD_String='MET_AD', Area_String='MET_AREAM2',
@@ -2414,6 +2415,23 @@ class CESM_Reader:
                     _convFactor *= 1.0E+03
         elif currUnit == 'kg' and (targetUnit in ['kg']):
             _displayUnit = targetUnit
+        elif currUnit in ['m/s', 'cm/s', 'mm/day'] and targetUnit in ['m/s', 'cm/s', 'mm/day']:
+            _displayUnit = targetUnit
+            if currUnit == 'm/s':
+                if targetUnit == 'cm/s':
+                    _convFactor = 1.0E+02
+                elif targetUnit == 'mm/day':
+                    _convFactor = 1.0E+03 * 86400
+            elif currUnit == 'cm/s':
+                if targetUnit == 'm/s':
+                    _convFactor = 1.0E-02
+                elif targetUnit == 'mm/day':
+                    _convFactor = 1.0E+01 * 86400
+            elif currUnit == 'mm/day':
+                if targetUnit == 'm/s':
+                    _convFactor = 1.0E+00 / (1.0E+03 * 86400)
+                elif targetUnit == 'cm/s':
+                    _convFactor = 1.0E+00 / (1.0E+01 * 86400)
         else:
             logging.warning('Could not convert currUnit: {:s} to {:s}'.format(currUnit,targetUnit))
             RC = WRONG_UNIT

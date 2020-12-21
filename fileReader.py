@@ -224,10 +224,12 @@ class CESM_Reader:
         for unit in self.possUnit:
             self.allUnits += [unit]
         self.allUnits += ['kg', 'kg/m2', 'g/m2', 'DU', 'mDU', 'molec/cm2',
-                          'm/s', 'cm/s', 'mm/day']
+                          'm/s', 'cm/s', 'mm/day', 'kg/m3', 'g/m3', 'mg/m3',
+                          'ug/m3']
 
     def register(self, include=[], exclude=[], excludeTape={},
-                 loadUnit='-', AD_String='MET_AD', Area_String='MET_AREAM2',
+                 loadUnit='-', AD_String='MET_AD', AirDen_String='MET_AIRDEN',
+                 Area_String='MET_AREAM2',
                  debug=False):
 
         for handler in logging.root.handlers[:]:
@@ -241,16 +243,20 @@ class CESM_Reader:
         self.exclude     = exclude
         self.loadUnit    = loadUnit
         if self.loadUnit not in self.possUnit.keys():
-            if self.loadUnit not in ['kg', 'kg/m2']:
+            if self.loadUnit not in ['kg', 'kg/m2', 'kg/m3']:
                 logging.error('Unknown load unit {:s}'.format(self.loadUnit))
         self.extras      = []
         self.Met_Area    = Area_String
         self.extras     += [self.Met_Area]
         if AD_String is not None:
              self.Met_AD      = AD_String
+        if AirDen_String is not None:
+            self.Met_AIRDEN   = AirDen_String
 
         if self.loadUnit in ['kg', 'kg/m2']:
             self.extras += [self.Met_AD]
+        if self.loadUnit in ['kg/m3']:
+            self.extras += [self.Met_AIRDEN]
 
         if len(self.include) > 0:
             self.data           = {}
@@ -392,6 +398,9 @@ class CESM_Reader:
             del fId
 
             if self.loadUnit in ['kg', 'kg/m2'] and not self.found[self.Met_AD]:
+                logging.error('Reverting species units to mixing ratio!')
+                self.loadUnit = '-'
+            elif self.loadUnit in ['kg/m3'] and not self.found[self.Met_AIRDEN]:
                 logging.error('Reverting species units to mixing ratio!')
                 self.loadUnit = '-'
 
@@ -665,6 +674,32 @@ class CESM_Reader:
                                                 airDensDev[:,iLev,:,:] = np.divide(airDensDev[:,iLev,:,:],self.area)
                                         fADId.close()
 
+                            if self.loadUnit in ['kg/m3']:
+                                AD_comp    = self.locat[self.Met_AIRDEN][0]
+                                AD_tape    = self.locat[self.Met_AIRDEN][1]
+                                ADfound    = False
+                                for ADfile in self.fileInst.fileList[AD_comp][AD_tape]:
+                                    AD_YYYY, AD_MM, AD_DD, isMonthly = self.__extractDate(ADfile)
+                                    if (AD_YYYY == YYYY) and (AD_MM == MM):
+                                        if isMonthly:
+                                            ADfound = True
+                                        elif (AD_DD == DD):
+                                            ADfound = True
+                                        if ADfound:
+                                            oldADfile  = currADfile
+                                            currADfile = ADfile
+                                            break;
+                                if oldADfile != currADfile:
+                                    logging.debug('Loading AD file {:s}'.format(currADfile))
+                                    fADId     = Dataset(currADfile, 'r')
+                                    airDens   = fADId[self.Met_AIRDEN][:,:,:,:]
+                                    fADId.close()
+
+                                    if self.diffRun:
+                                        fADId = Dataset(currADfile.replace(self.rootFolder, self.devFolder), 'r')
+                                        airDensDev = fADId[self.Met_AIRDEN][:,:,:,:]
+                                        fADId.close()
+
                             for iSpec, spec in enumerate(self.includePerTape[_comp][_tape]):
                                 if firstFile[spec]:
                                     # Get long name for this species
@@ -697,7 +732,7 @@ class CESM_Reader:
 
                                     isSpecies[spec] = False
                                     self.unit[spec]  = fId[spec].units
-                                    if self.loadUnit in ['kg', 'kg/m2'] and self.unit[spec] in self.possUnit.keys():
+                                    if self.loadUnit in ['kg', 'kg/m2', 'kg/m3'] and self.unit[spec] in self.possUnit.keys():
                                         # This means that the current unit is equivalent to molar mixing ratio
                                         isSpecies[spec] = True
                                         self.unit[spec] = self.loadUnit
@@ -748,7 +783,7 @@ class CESM_Reader:
 
                                     if timeAveraging:
                                         if doLayer:
-                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2', 'kg/m3']:
                                                 self.data[spec] += np.mean(np.multiply(dataFile[:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
                                                     self.data[spec] -= np.mean(np.multiply(dataFileDev[:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
@@ -757,7 +792,7 @@ class CESM_Reader:
                                                 if self.diffRun:
                                                     self.data[spec] -= np.mean(dataFileDev[:,self.iLayer,:,:], axis=_avAxis)
                                         else:
-                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2', 'kg/m3']:
                                                 self.data[spec] += np.mean(np.multiply(dataFile, airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
                                                     self.data[spec] -= np.mean(np.multiply(dataFileDev, airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
@@ -769,7 +804,7 @@ class CESM_Reader:
                                     else:
                                         currTimeIndex = (filesRead-1) * _localSample
                                         if doLayer:
-                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2', 'kg/m3']:
                                                 self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(dataFile[:,self.iLayer,:,:], airDens[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
                                                     self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(dataFileDev[:,self.iLayer,:,:], airDensDev[:,self.iLayer,:,:]), axis=_avAxis) * self.MWRatio[spec.upper()]
@@ -778,7 +813,7 @@ class CESM_Reader:
                                                 if self.diffRun:
                                                     self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(dataFileDev[:,self.iLayer,:,:], axis=_avAxis)
                                         else:
-                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2']:
+                                            if isSpecies[spec] and self.unit[spec] in ['kg', 'kg/m2', 'kg/m3']:
                                                 self.data[spec][currTimeIndex:currTimeIndex+_localSample] = np.mean(np.multiply(dataFile, airDens), axis=_avAxis) * self.MWRatio[spec.upper()]
                                                 if self.diffRun:
                                                     self.data[spec][currTimeIndex:currTimeIndex+_localSample] -= np.mean(np.multiply(dataFileDev, airDensDev), axis=_avAxis) * self.MWRatio[spec.upper()]
@@ -961,6 +996,7 @@ class CESM_Reader:
 
     def plot(self, data=None, species=None, dataUnit=None, plotUnit=None,
              cmap=None, clim=None, ylim=None, xlim=None,
+             lonTicks=None, latTicks=None, bounds=None,
              show_colorbar=True, cbTitle=None, logScale=False,
              labelFtSize=18, labelTickSize=18, isDiff=False,
              debug=False):
@@ -1075,10 +1111,11 @@ class CESM_Reader:
                 if not found:
                     logging.error('Could not find timeMid corresponding to shape of incoming data')
 
-            if 'DU' in targetUnit and not (spec == 'O3' and currUnit == 'kg/m2'):
-                # Do not plot Dobson units for species other than ozone
-                logging.info('Reverting back plotting unit from {:s} to {:s}'.format(targetUnit, currUnit))
-                targetUnit = currUnit
+            if targetUnit is not None and spec is not None:
+                if 'DU' in targetUnit and not (spec == 'O3' and currUnit == 'kg/m2'):
+                    # Do not plot Dobson units for species other than ozone
+                    logging.info('Reverting back plotting unit from {:s} to {:s}'.format(targetUnit, currUnit))
+                    targetUnit = currUnit
 
             if nDim == 1:
                 if np.size(data) == nTime:
@@ -1099,6 +1136,7 @@ class CESM_Reader:
                     im, cb, fig = self.plotLatitude(data=data, spec=currSpec, unit=currUnit,
                                                     targetUnit=targetUnit,
                                                     ylim=ylim, xlim=xlim, logScale=logScale,
+                                                    latTicks=latTicks,
                                                     labelFtSize=labelFtSize,
                                                     labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -1106,6 +1144,7 @@ class CESM_Reader:
                     im, cb, fig = self.plotLongitude(data=data, spec=currSpec, unit=currUnit,
                                                      targetUnit=targetUnit,
                                                      ylim=ylim, xlim=xlim, logScale=logScale,
+                                                     lonTicks=lonTicks,
                                                      labelFtSize=labelFtSize,
                                                      labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -1116,6 +1155,7 @@ class CESM_Reader:
                     im, cb, fig = self.plotZonal(data=data, spec=currSpec, unit=currUnit,
                                                  targetUnit=targetUnit,
                                                  cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                 latTicks=latTicks, bounds=bounds,
                                                  show_colorbar=show_colorbar, logScale=logScale,
                                                  cbTitle=cbTitle, labelFtSize=labelFtSize,
                                                  labelTickSize=labelTickSize, isDiff=isDiff)
@@ -1124,13 +1164,14 @@ class CESM_Reader:
                     im, cb, fig = self.plotLayer(data=data, spec=currSpec, unit=currUnit,
                                                  targetUnit=targetUnit,
                                                  cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                 latTicks=latTicks, lonTicks=lonTicks, bounds=bounds,
                                                  show_colorbar=show_colorbar, logScale=logScale,
                                                  cbTitle=cbTitle, labelFtSize=labelFtSize,
                                                  labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
                 elif np.shape(data) == (nTime,self.nLev):
                     im, cb, fig = self.plotTimeAlt(data=data, spec=currSpec, unit=currUnit,
-                                                   targetUnit=targetUnit,
+                                                   targetUnit=targetUnit, bounds=bounds,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
                                                    logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
@@ -1139,6 +1180,7 @@ class CESM_Reader:
                     im, cb, fig = self.plotTimeLat(data=data, spec=currSpec, unit=currUnit,
                                                    targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                   latTicks=latTicks, bounds=bounds,
                                                    logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -1146,6 +1188,7 @@ class CESM_Reader:
                     im, cb, fig = self.plotTimeLon(data=data, spec=currSpec, unit=currUnit,
                                                    targetUnit=targetUnit,
                                                    cmap=cmap, clim=clim, ylim=ylim, xlim=xlim,
+                                                   lonTicks=lonTicks, bounds=bounds,
                                                    logScale=logScale, labelFtSize=labelFtSize,
                                                    labelTickSize=labelTickSize, isDiff=isDiff)
                     RC = SUCCESS
@@ -1154,23 +1197,31 @@ class CESM_Reader:
             else:
                 logging.error('Data appears to be >2D. Not sure how to plot higher dimensional data')
             if RC == SUCCESS:
-                imageDict[spec] = im
-                cbDict[spec] = cb
-                figDict[spec] = fig
+                if currSpec is not None:
+                    imageDict[currSpec] = im
+                    cbDict[currSpec]    = cb
+                    figDict[currSpec]   = fig
+                else:
+                    imageDict['Spec_' + str(iSpec)] = im
+                    cbDict['Spec_' + str(iSpec)]    = cb
+                    figDict['Spec_' + str(iSpec)]   = fig
 
         return imageDict, cbDict, figDict
 
     def plotZonal(self, data=None, spec=None,
-                  cmap=None, clim=None, ylim=None, xlim=None,
+                  cmap=None, clim=None, ylim=None, xlim=None, bounds=None,
                   show_colorbar=True, cbTitle=None, logScale=False,
                   labelFtSize=18, labelTickSize=18, isDiff=False,
-                  unit=None, targetUnit=None, latTicks=np.array([-90,-60,-30,0,30,60,90])):
+                  unit=None, targetUnit=None, latTicks=None):
 
         if (not isinstance(data, np.ndarray)) and (spec is None):
             logging.error('No data was passed to plotZonal')
         elif (not isinstance(data, np.ndarray)) and (spec is not None):
             data = self.data[spec]
             unit = self.unit[spec]
+
+        if latTicks is None:
+            latTicks = np.array([-90,-60,-30,0,30,60,90])
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1200,13 +1251,16 @@ class CESM_Reader:
         if cmap is not None:
             _usr_cmap = cmap
 
-        # Plot data
-        if not logScale:
-            im = ax.pcolormesh(self.latEdge, self.pEdge, data * _convFactor, cmap=_usr_cmap)
+        if bounds is not None:
+            norm=colors.BoundaryNorm(boundaries=bounds, ncolors=256)
+        elif logScale:
+            norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                vmax=np.max(data * _convFactor))
         else:
-            im = ax.pcolormesh(self.latEdge, self.pEdge, data * _convFactor, cmap=_usr_cmap,
-                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
-                                        vmax=np.max(data * _convFactor)))
+            norm = None
+
+        # Plot data
+        im = ax.pcolormesh(self.latEdge, self.pEdge, data * _convFactor, cmap=_usr_cmap, norm=norm)
 
         # Change color limits
         if _isNeg:
@@ -1258,6 +1312,10 @@ class CESM_Reader:
         # Invert pressure axis and log scale
         ax.invert_yaxis()
         ax.set_yscale('log')
+        ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
+        ax.set_xlabel('Latitude', fontsize=labelFtSize)
+        ax.set_xticks(latTicks)
+        ax.set_xticklabels(_latTickLabels)
         ax.set_xlim([-90, 90])
         if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
@@ -1273,10 +1331,6 @@ class CESM_Reader:
             if np.isfinite(xlim[1]):
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
-        ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
-        ax.set_xlabel('Latitude', fontsize=labelFtSize)
-        ax.set_xticks(latTicks)
-        ax.set_xticklabels(_latTickLabels)
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('{:s} zonally-averaged, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1297,19 +1351,27 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotLayer(self, data=None, spec=None,
-                  cmap=None, clim=None, xlim=None, ylim=None,
+                  cmap=None, clim=None, xlim=None, ylim=None, bounds=None,
                   show_colorbar=True, cbTitle=None, logScale=False,
                   labelFtSize=18, labelTickSize=18, isDiff=False,
                   unit = None, targetUnit=None,
-                  lonTicks=np.array([-180,-120,-60,0,60,120,180]),
-                  latTicks=np.array([-90,-60,-30,0,30,60,90]),
+                  lonTicks=None, latTicks=None,
                   show_coastlines=True):
+
+        im  = None
+        fig = None
+        cb  = None
 
         if (not isinstance(data, np.ndarray))and (spec is None):
             logging.error('No data was passed to plotLayer')
         elif (not isinstance(data, np.ndarray))and (spec is not None):
             data = self.data[spec]
             unit = self.unit[spec]
+
+        if latTicks is None:
+            latTicks = np.array([-90,-60,-30,0,30,60,90])
+        if lonTicks is None:
+            lonTicks = np.array([-180,-120,-60,0,60,120,180])
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8),
                                subplot_kw={'projection': ccrs.PlateCarree(central_longitude=0.0)})
@@ -1344,13 +1406,16 @@ class CESM_Reader:
         if cmap is not None:
             _usr_cmap = cmap
 
-        # Plot data
-        if not logScale:
-            im = ax.pcolormesh(self.lonEdge, self.latEdge, data * _convFactor, cmap=_usr_cmap)
+        if bounds is not None:
+            norm=colors.BoundaryNorm(boundaries=bounds, ncolors=256)
+        elif logScale:
+            norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                vmax=np.max(data * _convFactor))
         else:
-            im = ax.pcolormesh(self.lonEdge, self.latEdge, data * _convFactor, cmap=_usr_cmap,
-                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
-                                        vmax=np.max(data * _convFactor)))
+            norm = None
+
+        # Plot data
+        im = ax.pcolormesh(self.lonEdge, self.latEdge, data * _convFactor, cmap=_usr_cmap, norm=norm)
 
         # Change color limits
         if _isNeg:
@@ -1400,6 +1465,13 @@ class CESM_Reader:
         uMean = self.__fancyUnit(uMean)
 
         ax.set_ylim([-90, 90])
+        ax.set_ylabel('Latitude', fontsize=labelFtSize)
+        ax.set_xlabel('Longitude', fontsize=labelFtSize)
+        ax.set_yticks(latTicks)
+        ax.set_yticklabels(_latTickLabels)
+        ax.set_xticks(lonTicks)
+        ax.set_xticklabels(_lonTickLabels)
+        ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
         if ylim is not None:
             _tmplim = np.array(ax.get_ylim())
             if np.isfinite(ylim[0]):
@@ -1415,13 +1487,6 @@ class CESM_Reader:
                 _tmplim[1] = xlim[1]
             ax.set_xlim(_tmplim)
 
-        ax.set_ylabel('Latitude', fontsize=labelFtSize)
-        ax.set_xlabel('Longitude', fontsize=labelFtSize)
-        ax.set_yticks(latTicks)
-        ax.set_yticklabels(_latTickLabels)
-        ax.set_xticks(lonTicks)
-        ax.set_xticklabels(_lonTickLabels)
-        ax.tick_params(axis='both', which='major', labelsize=labelTickSize)
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('{:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1500,24 +1565,6 @@ class CESM_Reader:
         # Plot data
         im = ax.plot(timeMid, data * _convFactor)
 
-        # Change axis limits
-        if _isNeg:
-            ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
-        if ylim is not None:
-            _tmplim = np.array(ax.get_ylim())
-            if np.isfinite(ylim[0]):
-                _tmplim[0] = ylim[0]
-            if np.isfinite(ylim[1]):
-                _tmplim[1] = ylim[1]
-            ax.set_ylim(_tmplim)
-        if xlim is not None:
-            _tmplim = np.array(ax.get_xlim())
-            if np.isfinite(xlim[0]):
-                _tmplim[0] = xlim[0]
-            if np.isfinite(xlim[1]):
-                _tmplim[1] = xlim[1]
-            ax.set_xlim(_tmplim)
-
         if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
             uMin = 'ppbv'
@@ -1558,6 +1605,24 @@ class CESM_Reader:
             ax.set_yscale('log')
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([timeMid[0], timeMid[-1]])
+        # Change axis limits
+        if _isNeg:
+            ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
         if spec is not None:
             ax.set_ylabel('Global {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
             _fancySpec = self.__fancySpec(spec)
@@ -1571,7 +1636,7 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotTimeAlt(self, data=None, spec=None,
-                    cmap=None, clim=None, xlim=None, ylim=None,
+                    cmap=None, clim=None, xlim=None, ylim=None, bounds=None,
                     show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     unit=None, targetUnit=None):
@@ -1627,14 +1692,16 @@ class CESM_Reader:
         if cmap is not None:
             _usr_cmap = cmap
 
-        # Plot data
-        if not logScale:
-           im = ax.pcolormesh(timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        if bounds is not None:
+            norm=colors.BoundaryNorm(boundaries=bounds, ncolors=256)
+        elif logScale:
+            norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                vmax=np.max(data * _convFactor))
         else:
-           im = ax.pcolormesh(timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
-                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
-                                        vmax=np.max(data * _convFactor)))
+            norm = None
 
+        # Plot data
+        im = ax.pcolormesh(timeMid, self.pEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap, norm=norm)
 
         # Change axis limits
         if _isNeg:
@@ -1646,20 +1713,6 @@ class CESM_Reader:
             if np.isfinite(clim[1]):
                 _tmpclim[1] = clim[1]
             im.set_clim(_tmpclim)
-        if ylim is not None:
-            _tmplim = np.array(ax.get_ylim())
-            if np.isfinite(ylim[0]):
-                _tmplim[0] = ylim[0]
-            if np.isfinite(ylim[1]):
-                _tmplim[1] = ylim[1]
-            ax.set_ylim(_tmplim)
-        if xlim is not None:
-            _tmplim = np.array(ax.get_xlim())
-            if np.isfinite(xlim[0]):
-                _tmplim[0] = xlim[0]
-            if np.isfinite(xlim[1]):
-                _tmplim[1] = xlim[1]
-            ax.set_xlim(_tmplim)
 
         if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
@@ -1703,6 +1756,20 @@ class CESM_Reader:
         ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([timeMid[0], timeMid[-1]])
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal altitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1723,11 +1790,11 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotTimeLat(self, data=None, spec=None,
-                    cmap=None, clim=None, xlim=None, ylim=None,
+                    cmap=None, clim=None, xlim=None, ylim=None, bounds=None,
                     show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     unit=None, targetUnit=None,
-                    latTicks=np.array([-90,-60,-30,0,30,60,90])):
+                    latTicks=None):
 
         im  = None
         cb  = None
@@ -1753,6 +1820,9 @@ class CESM_Reader:
             if not found:
                 logging.error('Could not find timeMid corresponding to shape of incoming data')
                 return im, cb, fig
+
+        if latTicks is None:
+            latTicks = np.array([-90,-60,-30,0,30,60,90])
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1782,13 +1852,16 @@ class CESM_Reader:
         if cmap is not None:
             _usr_cmap = cmap
 
-        # Plot data
-        if not logScale:
-            im = ax.pcolormesh(timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        if bounds is not None:
+            norm=colors.BoundaryNorm(boundaries=bounds, ncolors=256)
+        elif logScale:
+            norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                vmax=np.max(data * _convFactor))
         else:
-            im = ax.pcolormesh(timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
-                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
-                                        vmax=np.max(data * _convFactor)))
+            norm = None
+
+        # Plot data
+        im = ax.pcolormesh(timeMid, self.latEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap, norm=norm)
 
         # Change axis limits
         if _isNeg:
@@ -1800,21 +1873,6 @@ class CESM_Reader:
             if np.isfinite(clim[1]):
                 _tmpclim[1] = clim[1]
             im.set_clim(_tmpclim)
-        ax.set_ylim([-90, 90])
-        if ylim is not None:
-            _tmplim = np.array(ax.get_ylim())
-            if np.isfinite(ylim[0]):
-                _tmplim[0] = ylim[0]
-            if np.isfinite(ylim[1]):
-                _tmplim[1] = ylim[1]
-            ax.set_ylim(_tmplim)
-        if xlim is not None:
-            _tmplim = np.array(ax.get_xlim())
-            if np.isfinite(xlim[0]):
-                _tmplim[0] = xlim[0]
-            if np.isfinite(xlim[1]):
-                _tmplim[1] = xlim[1]
-            ax.set_xlim(_tmplim)
 
         if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
@@ -1858,6 +1916,22 @@ class CESM_Reader:
         ax.set_yticklabels(_latTickLabels)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([timeMid[0], timeMid[-1]])
+        ax.set_ylim([-90, 90])
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal latitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -1878,11 +1952,11 @@ class CESM_Reader:
         return im, cb, fig
 
     def plotTimeLon(self, data=None, spec=None,
-                    cmap=None, clim=None, xlim=None, ylim=None,
+                    cmap=None, clim=None, xlim=None, ylim=None, bounds=None,
                     show_colorbar=True, cbTitle=None, logScale=False,
                     labelFtSize=18, labelTickSize=18, isDiff=False,
                     unit=None, targetUnit=None,
-                    lonTicks=np.array([-180,-120,-60,0,60,120,180])):
+                    lonTicks=None):
 
         im  = None
         cb  = None
@@ -1908,6 +1982,9 @@ class CESM_Reader:
             if not found:
                 logging.error('Could not find timeMid corresponding to shape of incoming data')
                 return im, cb, fig
+
+        if lonTicks is None:
+            lonTicks = np.array([-180,-120,-60,0,60,120,180])
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -1938,13 +2015,16 @@ class CESM_Reader:
         if cmap is not None:
             _usr_cmap = cmap
 
-        # Plot data
-        if not logScale:
-            im = ax.pcolormesh(timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap)
+        if bounds is not None:
+            norm=colors.BoundaryNorm(boundaries=bounds, ncolors=256)
+        elif logScale:
+            norm=colors.LogNorm(vmin=np.min(data * _convFactor),
+                                vmax=np.max(data * _convFactor))
         else:
-            im = ax.pcolormesh(timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap,
-                    norm=colors.LogNorm(vmin=np.min(data * _convFactor),
-                                        vmax=np.max(data * _convFactor)))
+            norm = None
+
+        # Plot data
+        im = ax.pcolormesh(timeMid, self.lonEdge, np.transpose(data) * _convFactor, cmap=_usr_cmap, norm=norm)
 
         # Change axis limits
         if _isNeg:
@@ -1956,20 +2036,6 @@ class CESM_Reader:
             if np.isfinite(clim[1]):
                 _tmpclim[1] = clim[1]
             im.set_clim(_tmpclim)
-        if ylim is not None:
-            _tmplim = np.array(ax.get_ylim())
-            if np.isfinite(ylim[0]):
-                _tmplim[0] = ylim[0]
-            if np.isfinite(ylim[1]):
-                _tmplim[1] = ylim[1]
-            ax.set_ylim(_tmplim)
-        if xlim is not None:
-            _tmplim = np.array(ax.get_xlim())
-            if np.isfinite(xlim[0]):
-                _tmplim[0] = xlim[0]
-            if np.isfinite(xlim[1]):
-                _tmplim[1] = xlim[1]
-            ax.set_xlim(_tmplim)
 
         if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
@@ -2012,6 +2078,20 @@ class CESM_Reader:
         ax.set_yticklabels(_lonTickLabels)
         ax.set_xlabel('Time', fontsize=labelFtSize)
         ax.set_xlim([timeMid[0], timeMid[-1]])
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
         if spec is not None:
             _fancySpec = self.__fancySpec(spec)
             ax.set_title('Temporal longitudinal variations of {:s}, {:s}\nMin: {:3.2e} {:s}, Max: {:3.2e} {:s}, Mean: {:3.2} {:s}'.
@@ -2035,6 +2115,10 @@ class CESM_Reader:
                      xlim=None, ylim=None, isDiff=False,
                      logScale=False, labelFtSize=18, labelTickSize=18,
                      unit=None, targetUnit=None):
+
+        im  = None
+        cb  = None
+        fig = None
 
         if not isinstance(data, np.ndarray):
             if spec is None:
@@ -2067,24 +2151,6 @@ class CESM_Reader:
 
         # Plot data
         im = ax.plot(data * _convFactor, self.pMid)
-
-        # Change axis limits
-        if _isNeg:
-            ax.set_xlim(np.array([-1,1])*np.max(np.abs(ax.get_xlim())))
-        if ylim is not None:
-            _tmplim = np.array(ax.get_ylim())
-            if np.isfinite(ylim[0]):
-                _tmplim[0] = ylim[0]
-            if np.isfinite(ylim[1]):
-                _tmplim[1] = ylim[1]
-            ax.set_ylim(_tmplim)
-        if xlim is not None:
-            _tmplim = np.array(ax.get_xlim())
-            if np.isfinite(xlim[0]):
-                _tmplim[0] = xlim[0]
-            if np.isfinite(xlim[1]):
-                _tmplim[1] = xlim[1]
-            ax.set_xlim(_tmplim)
 
         if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
@@ -2128,6 +2194,24 @@ class CESM_Reader:
         ax.set_ylabel('Pressure, hPa', fontsize=labelFtSize)
         if logScale:
             ax.set_xscale('log')
+        # Change axis limits
+        if _isNeg:
+            ax.set_xlim(np.array([-1,1])*np.max(np.abs(ax.get_xlim())))
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
         if spec is not None:
             ax.set_xlabel('Mean {:s}, {:s}'.format(spec, targetUnit), fontsize=labelFtSize)
             _fancySpec = self.__fancySpec(spec)
@@ -2144,7 +2228,11 @@ class CESM_Reader:
                      xlim=None, ylim=None, isDiff=False,
                      logScale=False, labelFtSize=18, labelTickSize=18,
                      unit=None, targetUnit=None,
-                     latTicks=np.array([-90,-60,-30,0,30,60,90])):
+                     latTicks=None):
+
+        im  = None
+        cb  = None
+        fig = None
 
         if not isinstance(data, np.ndarray):
             if spec is None:
@@ -2152,6 +2240,9 @@ class CESM_Reader:
             else:
                 data = self.data[spec]
                 unit = self.unit[spec]
+
+        if latTicks is None:
+            latTicks = np.array([-90,-60,-30,0,30,60,90])
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -2179,25 +2270,6 @@ class CESM_Reader:
 
         # Plot data
         im = ax.plot(self.lat, data * _convFactor)
-
-        # Change axis limits
-        ax.set_xlim([-90, 90])
-        if _isNeg:
-            ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
-        if ylim is not None:
-            _tmplim = np.array(ax.get_ylim())
-            if np.isfinite(ylim[0]):
-                _tmplim[0] = ylim[0]
-            if np.isfinite(ylim[1]):
-                _tmplim[1] = ylim[1]
-            ax.set_ylim(_tmplim)
-        if xlim is not None:
-            _tmplim = np.array(ax.get_xlim())
-            if np.isfinite(xlim[0]):
-                _tmplim[0] = xlim[0]
-            if np.isfinite(xlim[1]):
-                _tmplim[1] = xlim[1]
-            ax.set_xlim(_tmplim)
 
         if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
@@ -2238,6 +2310,25 @@ class CESM_Reader:
         ax.set_xlabel('Latitude', fontsize=labelFtSize)
         ax.set_xticks(latTicks)
         ax.set_xticklabels(_latTickLabels)
+        # Change axis limits
+        ax.set_xlim([-90, 90])
+        if _isNeg:
+            ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
         if logScale:
             ax.set_yscale('log')
         if spec is not None:
@@ -2256,7 +2347,11 @@ class CESM_Reader:
                       xlim=None, ylim=None, isDiff=False,
                       logScale=False, labelFtSize=18, labelTickSize=18,
                       unit=None, targetUnit=None,
-                      lonTicks=np.array([-180,-120,-60,0,60,120,180])):
+                      lonTicks=None):
+
+        im  = None
+        cb  = None
+        fig = None
 
         if not isinstance(data, np.ndarray):
             if spec is None:
@@ -2264,6 +2359,9 @@ class CESM_Reader:
             else:
                 data = self.data[spec]
                 unit = self.unit[spec]
+
+        if lonTicks is None:
+            lonTicks = np.array([-180,-120,-60,0,60,120,180])
 
         fig, ax = plt.subplots(1, 1, figsize=(15,8))
 
@@ -2294,25 +2392,6 @@ class CESM_Reader:
 
         # Plot data
         im = ax.plot(self.lon, data * _convFactor)
-
-        # Change axis limits
-        ax.set_xlim(np.array([-180, 180]) + lonShift)
-        if _isNeg:
-            ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
-        if ylim is not None:
-            _tmplim = np.array(ax.get_ylim())
-            if np.isfinite(ylim[0]):
-                _tmplim[0] = ylim[0]
-            if np.isfinite(ylim[1]):
-                _tmplim[1] = ylim[1]
-            ax.set_ylim(_tmplim)
-        if xlim is not None:
-            _tmplim = np.array(ax.get_xlim())
-            if np.isfinite(xlim[0]):
-                _tmplim[0] = xlim[0]
-            if np.isfinite(xlim[1]):
-                _tmplim[1] = xlim[1]
-            ax.set_xlim(_tmplim)
 
         if _isMixRatio:
             Min  = np.min(data * _convFactor) * self.possUnit[targetUnit] / self.possUnit['ppbv']
@@ -2353,6 +2432,25 @@ class CESM_Reader:
         ax.set_xlabel('Longitude', fontsize=labelFtSize)
         ax.set_xticks(lonTicks + lonShift)
         ax.set_xticklabels(_lonTickLabels)
+        # Change axis limits
+        ax.set_xlim(np.array([-180, 180]) + lonShift)
+        if _isNeg:
+            ax.set_ylim(np.array([-1,1])*np.max(np.abs(ax.get_ylim())))
+        if ylim is not None:
+            _tmplim = np.array(ax.get_ylim())
+            if np.isfinite(ylim[0]):
+                _tmplim[0] = ylim[0]
+            if np.isfinite(ylim[1]):
+                _tmplim[1] = ylim[1]
+            ax.set_ylim(_tmplim)
+        if xlim is not None:
+            _tmplim = np.array(ax.get_xlim())
+            if np.isfinite(xlim[0]):
+                _tmplim[0] = xlim[0]
+            if np.isfinite(xlim[1]):
+                _tmplim[1] = xlim[1]
+            ax.set_xlim(_tmplim)
+
         if logScale:
             ax.set_yscale('log')
         if spec is not None:
@@ -2414,6 +2512,14 @@ class CESM_Reader:
                 _convFactor  = Na / 48.00E-03 / 2.687E+20
                 if targetUnit == 'mDU':
                     _convFactor *= 1.0E+03
+        elif currUnit == 'kg/m3' and (targetUnit in ['kg/m3', 'g/m3', 'mg/m3', 'ug/m3']):
+            _displayUnit = targetUnit
+            if targetUnit == 'g/m3':
+                _convFactor = 1.0E+03
+            elif targetUnit == 'mg/m3':
+                _convFactor = 1.0E+06
+            elif targetUnit == 'ug/m3':
+                _convFactor = 1.0E+09
         elif currUnit == 'kg' and (targetUnit in ['kg']):
             _displayUnit = targetUnit
         elif currUnit in ['m/s', 'cm/s', 'mm/day'] and targetUnit in ['m/s', 'cm/s', 'mm/day']:
@@ -2456,7 +2562,7 @@ class CESM_Reader:
         # Latitude ticks
         latTickLabels = []
         for tick in latTicks:
-            tick_str = '{:d}'.format(np.abs(tick))
+            tick_str = '{:0.1f}'.format(np.abs(tick))
             if tick < -0.0001:
                 tick_label = tick_str + '$^\circ$' + 'S'
             elif tick > 0.0001:
@@ -2473,7 +2579,7 @@ class CESM_Reader:
             _tick = tick+shift
             if _tick > 180:
                 _tick = _tick - 360
-            tick_str = '{:d}'.format(np.abs(_tick))
+            tick_str = '{:0.1f}'.format(np.abs(_tick))
             _threshold = 0
 #             if not isCentered:
 #                 _threshold = 180

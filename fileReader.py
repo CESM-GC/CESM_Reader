@@ -789,7 +789,7 @@ class CESM_Reader:
                                         nFiles[spec] = 1
                                 elif dimensions == ('time', 'lat', 'lon'):
                                     # This should make distinction between (time, lat, lon) and (lev, lat, lon)
-                                    if 'time' in fId.dimensions.keys():
+                                    if 'time' in dimensions:
                                         # Then we have a temporally-evolving layer-like field in (time, lat, lon)
                                         if firstFile[spec]:
                                             self.data[spec] = _tmpArray_2D.copy()
@@ -848,7 +848,8 @@ class CESM_Reader:
         for iSpec, spec in enumerate(self.include):
             if nFiles[spec] > 0:
                 self.data[spec] *= _scaleFactor / nFiles[spec]
-                if is3D[spec]:
+                if is3D[spec] and self.vertSum:
+                    # Convert vertical mean into vertical sum
                     self.data[spec] *= self.nLev
             else:
                 raise ValueError('No files were found for {:s}'.format(spec))

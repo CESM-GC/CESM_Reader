@@ -1070,6 +1070,8 @@ class CESM_Reader:
                 data     = self.data[spec]
                 currUnit = self.unit[spec]
                 currSpec = spec
+            if data is not None:
+                currSpec = species
             targetUnit = currUnit
             if custUnit_isStr:
                 targetUnit = plotUnit

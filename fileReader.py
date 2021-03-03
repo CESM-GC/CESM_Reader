@@ -229,7 +229,7 @@ class CESM_Reader:
 
     def register(self, include=[], exclude=[], excludeTape={},
                  loadUnit='-', AD_String='MET_AD', AirDen_String='MET_AIRDEN',
-                 Area_String='MET_AREAM2',
+                 Area_String='AREA',
                  debug=False):
 
         for handler in logging.root.handlers[:]:
@@ -1066,12 +1066,12 @@ class CESM_Reader:
             cb       = None
             currUnit = None
             currSpec = None
+            if data is not None:
+                currSpec = species
             if spec != 'None':
                 data     = self.data[spec]
                 currUnit = self.unit[spec]
                 currSpec = spec
-            if data is not None:
-                currSpec = species
             targetUnit = currUnit
             if custUnit_isStr:
                 targetUnit = plotUnit

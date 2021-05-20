@@ -597,7 +597,7 @@ class CESM_Reader:
                         break
 
                     fileName = self.fileInst.fileList[_comp][_tape][iFile]
-                    if self.diffRun:
+                    if self.diffRun and iFile < len(self.fileInst_dev.fileList[_comp][_tape]):
                         fileDev  = self.fileInst_dev.fileList[_comp][_tape][iFile]
 
                     YYYY, MM, DD, _ = self.__extractDate(fileName)
@@ -615,8 +615,10 @@ class CESM_Reader:
                     if not _discard:
                         try:
                             fId = Dataset(fileName, 'r')
+                            logging.debug('Loading file: {:s}'. format(fileName))
                             if self.diffRun:
                                 fIdDev = Dataset(fileDev, 'r')
+                                logging.debug('Loading dev file: {:s}'. format(fileDev))
                             isAFile = True
                         except:
                             isAFile = False
